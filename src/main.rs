@@ -43,7 +43,22 @@ fn main() -> anyhow::Result<()> {
         lcd_d6,
         lcd_d7,
         &mut Ets,
+    ).unwrap();
+    
+    lcd.reset(&mut Ets);
+    
+    lcd.clear(&mut Ets);
+
+    lcd.set_display_mode(
+        DisplayMode {
+            display: Display::On,
+            cursor_visibility: Cursor::Visible,
+            cursor_blink: CursorBlink::On,
+        },
+        &mut Ets
     );
+
+    lcd.write_str("Hello, world!", &mut Ets);
     
 
     Ok(())
