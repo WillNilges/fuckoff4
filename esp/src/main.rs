@@ -1,20 +1,31 @@
-use esp_idf_hal::delay::Ets;
-use esp_idf_hal::gpio::*;
-use esp_idf_hal::peripherals::Peripherals;
+use esp_idf_hal::{
+    delay::Ets,
+    gpio::*,
+    peripherals::Peripherals
+};
+
+use log::error;
+use chrono::{DateTime, Utc};
 
 use hd44780_driver::{HD44780, DisplayMode, Cursor, CursorBlink, Display};
 
-use http::{Request, Response, Uri};
+use embedded_svc::{
+    wifi::{AuthMethod, ClientConfiguration, Configuration},
+    http::{client::Client as HttpClient, Method},
+    utils::io,
+};
 
-use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
-
-use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
-use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
+use esp_idf_svc::{
+    eventloop::EspSystemEventLoop,
+    nvs::EspDefaultNvsPartition,
+    wifi::{BlockingWifi, EspWifi}, 
+    http::client::EspHttpConnection,
+};
 
 use log::info;
 
 pub mod config;
-use crate::config::{SSID, PASSWORD};
+use crate::config::{SSID, PASSWORD, API_KEY, CALENDAR_ID};
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -77,7 +88,11 @@ fn main() -> anyhow::Result<()> {
 
     lcd.write_str("Hello, world!", &mut Ets);
 
+    // Create HTTP(S) client
+    let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
 
+    // GET
+    get_request(&mut client)?;
 
     Ok(())
 }
@@ -103,4 +118,52 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()>
     info!("Wifi netif up");
 
     Ok(())
+}
+
+fn get_request(client: &mut HttpClient<EspHttpConnection>) -> anyhow::Result<()> {
+    // Get the current UTC time
+    let utc: DateTime<Utc> = Utc::now();
+
+    // Format the time as ISO 8601
+    let iso_time = utc.to_rfc3339();
+
+    let headers = [
+        ("maxResults", "10"),
+        ("orderBy", "startTime"),
+        ("showDeleted", "false"),
+        ("singleEvents", "true"),
+        ("timeMin", &iso_time),
+        ("fields", "items(location, start, end, summary, description"),
+        ("key", API_KEY),
+    ];
+
+    let url = format!("https://www.googleapis.com/calendar/v3/calendars/{}/events", CALENDAR_ID);
+
+    // Send request
+    //
+    // Note: If you don't want to pass in any headers, you can also use `client.get(url, headers)`.
+    let request = client.request(Method::Get, &url, &headers)?;
+    info!("-> GET {}", url);
+    let mut response = request.submit()?;
+
+    // Process response
+    let status = response.status();
+    info!("<- {}", status);
+    let mut buf = [0u8; 1024];
+    let bytes_read = io::try_read_full(&mut response, &mut buf).map_err(|e| e.0)?;
+    info!("Read {} bytes", bytes_read);
+    match std::str::from_utf8(&buf[0..bytes_read]) {
+        Ok(body_string) => info!(
+            "Response body (truncated to {} bytes): {:?}",
+            buf.len(),
+            body_string
+        ),
+        Err(e) => error!("Error decoding response body: {}", e),
+    };
+
+    // Drain the remaining response bytes
+    while response.read(&mut buf)? > 0 {}
+
+    Ok(())
+    
 }
