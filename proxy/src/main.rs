@@ -1,17 +1,12 @@
 use actix_web::{get, web, App, HttpServer, Responder};
-
 use chrono::{DateTime, Utc};
-
 use std::{env, arch::x86_64::__cpuid, task::Wake};
-
 use url::form_urlencoded;
-
 use dotenv::dotenv;
-
 use serde::Deserialize;
-use serde_json::Result;
+use anyhow::{anyhow, Result};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct Event {
     summary: String,
     description: Option<String>,
@@ -20,7 +15,7 @@ struct Event {
     end: EventDateTime,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct EventDateTime {
     #[serde(rename = "dateTime")]
     date_time: Option<String>,
@@ -40,11 +35,10 @@ async fn index() -> impl Responder {
     let gcal_response = get_calendar_events().await;
     match gcal_response {
         Ok(r) => {
-            let next_event = parse_next_events(r, 1).await.unwrap();
-            "Hello World!"
+            parse_next_events(r, 1).await.unwrap()
         },
         _ => {
-            "Failed to get calendar events"
+            "Failed to get calendar events".to_string()
         }
     }
 }
@@ -64,17 +58,21 @@ async fn main() -> std::io::Result<()> {
 }
 
 fn parse_json(json_str: &str) -> Result<CalendarEvents> {
-    serde_json::from_str(json_str)
+    serde_json::from_str(json_str).map_err(|e| anyhow!("{}", e))
 }
 
-async fn parse_next_events(gcal_payload: String, num: i32) -> anyhow::Result<String> {
-    println!("{}\nARGH!!!!", gcal_payload);
+async fn parse_next_events(gcal_payload: String, num: i32) -> Result<String> {
     match parse_json(gcal_payload.as_str()) {
-        Ok(calendar_events) => println!("{:#?}", calendar_events),
-        Err(err) => eprintln!("Error parsing JSON: {}", err),
+        Ok(calendar_events) => format_gcal_1602(calendar_events.items[0].clone()),
+        Err(err) => Err(anyhow!("Error parsing JSON: {}", err)),
     } 
+}
 
-    Ok("chom".to_string())
+fn format_gcal_1602(event: Event) -> Result<String> {
+    match event.start.date {
+        Some(d) => Ok(format!("{}\n{}", event.summary, d)),
+        None => Ok(event.summary)
+    }
 }
 
 async fn get_calendar_events() -> anyhow::Result<String> {
