@@ -11,14 +11,27 @@ use dotenv::dotenv;
 use serde::Deserialize;
 use serde_json::Result;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct CalendarEvent {
     summary: String,
     description: String,
     location: String,
-    start: chrono::NaiveDateTime,
-    end: chrono::NaiveDateTime,
+    start: GcalTime,
+    end: GcalTime,
 }
+
+#[derive(Deserialize, Debug)]
+struct GcalTime {
+    dateTime: chrono::NaiveDateTime,
+    timeZone: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct GcalResponse {
+    kind: String,
+    items: Vec<CalendarEvent>
+}
+
 
 #[get("/")]
 async fn index() -> impl Responder {
@@ -49,20 +62,13 @@ async fn main() -> std::io::Result<()> {
 }
 
 async fn parse_next_events(gcal_payload: String, num: i32) -> anyhow::Result<String> {
-    println!("Hello!?");
     println!("{}", gcal_payload);
-    let j = json::parse(&gcal_payload)?;
-    //println!("{}", );
+    let parsed_gcal_response: GcalResponse = serde_json::from_str(&gcal_payload)?;
 
-    match j["items"][0].as_str() {
-        Some(s) => {
-            let e: CalendarEvent = serde_json::from_str(s)?;
-            println!("Event: {}", e.summary);
-        },
-        None => {
-        }
+    for ev in parsed_gcal_response.items.iter() {
+        println!("{:#?}", ev);
     }
-    //println!("Event: {}", j["items"][0]);
+
     Ok("chom".to_string())
 }
 
