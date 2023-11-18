@@ -32,12 +32,14 @@ struct CalendarEvents {
 
 #[get("/")]
 async fn index() -> impl Responder {
+    println!("Get calendar events");
     let gcal_response = get_calendar_events().await;
     match gcal_response {
         Ok(r) => {
             parse_next_events(r, 1).await.unwrap()
         },
         _ => {
+            println!("Failed to get calendar events");
             "Failed to get calendar events".to_string()
         }
     }
@@ -50,7 +52,10 @@ async fn hello(name: web::Path<String>) -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    println!("Launching fuckoff4-proxy");
+    println!("Check dotenv");
     dotenv().ok();
+    println!("Run webserver");
     HttpServer::new(|| App::new().service(index).service(hello))
         .bind(("0.0.0.0", 8080))?
         .run()
