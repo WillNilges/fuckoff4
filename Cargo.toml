@@ -29,6 +29,8 @@ esp-idf-svc = { version = "0.47.3", default-features = false }
 lcd-lcm1602-i2c = "0.1.0"
 esp-idf-hal = "0.42.5"
 anyhow = "1.0.75"
+hd44780-driver = "0.4.0"
+embedded-hal = "0.2.7"
 
 [build-dependencies]
 embuild = "0.31.3"
