@@ -11,27 +11,29 @@ use dotenv::dotenv;
 use serde::Deserialize;
 use serde_json::Result;
 
-#[derive(Deserialize, Debug)]
-struct CalendarEvent {
+#[derive(Debug, Deserialize)]
+struct Event {
     summary: String,
-    description: String,
-    location: String,
-    start: GcalTime,
-    end: GcalTime,
+    description: Option<String>,
+    location: Option<String>,
+    start: EventDateTime,
+    end: EventDateTime,
 }
 
-#[derive(Deserialize, Debug)]
-struct GcalTime {
-    dateTime: chrono::NaiveDateTime,
-    timeZone: String,
+#[derive(Debug, Deserialize)]
+struct EventDateTime {
+    #[serde(rename = "dateTime")]
+    date_time: Option<String>,
+    date: Option<String>,
+    #[serde(rename = "timeZone")]
+    time_zone: Option<String>,
 }
 
-#[derive(Deserialize, Debug)]
-struct GcalResponse {
+#[derive(Debug, Deserialize)]
+struct CalendarEvents {
     kind: String,
-    items: Vec<CalendarEvent>
+    items: Vec<Event>,
 }
-
 
 #[get("/")]
 async fn index() -> impl Responder {
@@ -61,13 +63,16 @@ async fn main() -> std::io::Result<()> {
         .await
 }
 
-async fn parse_next_events(gcal_payload: String, num: i32) -> anyhow::Result<String> {
-    println!("{}", gcal_payload);
-    let parsed_gcal_response: GcalResponse = serde_json::from_str(&gcal_payload)?;
+fn parse_json(json_str: &str) -> Result<CalendarEvents> {
+    serde_json::from_str(json_str)
+}
 
-    for ev in parsed_gcal_response.items.iter() {
-        println!("{:#?}", ev);
-    }
+async fn parse_next_events(gcal_payload: String, num: i32) -> anyhow::Result<String> {
+    println!("{}\nARGH!!!!", gcal_payload);
+    match parse_json(gcal_payload.as_str()) {
+        Ok(calendar_events) => println!("{:#?}", calendar_events),
+        Err(err) => eprintln!("Error parsing JSON: {}", err),
+    } 
 
     Ok("chom".to_string())
 }
