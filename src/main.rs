@@ -4,6 +4,17 @@ use esp_idf_hal::peripherals::Peripherals;
 
 use hd44780_driver::{HD44780, DisplayMode, Cursor, CursorBlink, Display};
 
+use http::{Request, Response, Uri};
+
+use embedded_svc::wifi::{AuthMethod, ClientConfiguration, Configuration};
+
+use esp_idf_svc::wifi::{BlockingWifi, EspWifi};
+use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
+
+use log::info;
+
+pub mod config;
+use crate::config::{SSID, PASSWORD};
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -15,25 +26,31 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("Hello, world!");
 
-    //const LCD_ADDRESS: u8 = 0x27; // Address depends on hardware, see link below
-
     let peripherals = Peripherals::take()?;
-    //let i2c = peripherals.i2c0;
-    //let sda = peripherals.pins.gpio5;
-    //let scl = peripherals.pins.gpio6;
+
+    let sys_loop = EspSystemEventLoop::take()?;
+    let nvs = EspDefaultNvsPartition::take()?;
+
+    let mut wifi = BlockingWifi::wrap(
+        EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
+        sys_loop,
+    )?;
+
+    connect_wifi(&mut wifi)?;
+
+    let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
+
+    info!("Wifi DHCP info: {:?}", ip_info);
 
     println!("Holy shit it's willard. I'm doing GPIO things.");
 
-    //let config = I2cConfig::new().baudrate(100.kHz().into());
-    //let mut i2c = I2cDriver::new(i2c, sda, scl, &config)?;
-
-    let mut lcd_register = PinDriver::output(peripherals.pins.gpio13)?;
-    let mut lcd_enable = PinDriver::output(peripherals.pins.gpio12)?;
+    let lcd_register = PinDriver::output(peripherals.pins.gpio13)?;
+    let lcd_enable = PinDriver::output(peripherals.pins.gpio12)?;
     
-    let mut lcd_d4 = PinDriver::output(peripherals.pins.gpio14)?;
-    let mut lcd_d5 = PinDriver::output(peripherals.pins.gpio27)?;
-    let mut lcd_d6 = PinDriver::output(peripherals.pins.gpio26)?;
-    let mut lcd_d7 = PinDriver::output(peripherals.pins.gpio25)?;
+    let lcd_d4 = PinDriver::output(peripherals.pins.gpio14)?;
+    let lcd_d5 = PinDriver::output(peripherals.pins.gpio27)?;
+    let lcd_d6 = PinDriver::output(peripherals.pins.gpio26)?;
+    let lcd_d7 = PinDriver::output(peripherals.pins.gpio25)?;
 
     let mut lcd = HD44780::new_4bit(
         lcd_register,
@@ -59,7 +76,31 @@ fn main() -> anyhow::Result<()> {
     );
 
     lcd.write_str("Hello, world!", &mut Ets);
-    
+
+
+
+    Ok(())
+}
+
+fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()> {
+    let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
+        ssid: SSID.into(),
+        bssid: None,
+        auth_method: AuthMethod::WPA2Personal,
+        password: PASSWORD.into(),
+        channel: None,
+    });
+
+    wifi.set_configuration(&wifi_configuration)?;
+
+    wifi.start()?;
+    info!("Wifi started");
+
+    wifi.connect()?;
+    info!("Wifi connected");
+
+    wifi.wait_netif_up()?;
+    info!("Wifi netif up");
 
     Ok(())
 }

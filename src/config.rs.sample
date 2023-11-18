@@ -1,0 +1,4 @@
+pub const CALENDAR_ID: &str = "";
+pub const API_KEY: &str = "";
+pub const SSID: &str = "";
+pub const PASSWORD: &str = "";
