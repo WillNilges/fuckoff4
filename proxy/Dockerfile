@@ -1,31 +1,10 @@
-# STAGE 1: Build
-FROM rust:1.74 as builder
-
-WORKDIR /usr/src/
-RUN cargo init proxy
-WORKDIR /usr/src/proxy
-COPY Cargo.toml .
-RUN cargo build --release
-COPY src/ src/
-
-RUN cargo install --path .
-
-# STAGE 2: Shipit lol
-FROM debian:bullseye-slim
-
-#RUN apt-get update && apt-get install -y extra-runtime-dependencies && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /usr/local/cargo/bin/myapp /usr/local/bin/myapp
-
-CMD ["proxy"]
-
-
-FROM lukemathwalker/cargo-chef AS planner
+FROM docker.io/lukemathwalker/cargo-chef AS planner
 WORKDIR /usr/src/proxy
 COPY Cargo.toml .
 COPY src/ src/
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM lukemathwalker/cargo-chef AS cacher
+FROM docker.io/lukemathwalker/cargo-chef AS cacher
 WORKDIR /usr/src/proxy
 COPY --from=planner /usr/src/proxy/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
@@ -40,7 +19,8 @@ COPY --from=cacher $CARGO_HOME $CARGO_HOME
 RUN cargo build --release --bin proxy
 
 # STAGE 2: Shipit lol
-FROM debian:bullseye-slim AS runtime
-COPY --from=builder /usr/src/proxy/target/release/myapp /usr/local/bin/myapp
+FROM rust:1.74 AS runtime
+#RUN apt-get -y update && apt-get -y install libssl3
+COPY --from=builder /usr/src/proxy/target/release/proxy /usr/local/bin/proxy
 CMD ["proxy"]
 
