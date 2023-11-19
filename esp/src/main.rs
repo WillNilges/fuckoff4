@@ -93,20 +93,23 @@ fn main() -> anyhow::Result<()> {
         let _ = lcd.reset(&mut Ets);
         lcd.clear(&mut Ets);
         lcd.write_str("Fetch new status", &mut Ets);
-        FreeRtos::delay_ms(HZ);
+        FreeRtos::delay_ms(1000);
         let _ = lcd.reset(&mut Ets);
         lcd.clear(&mut Ets);
 
         match proxy_response {
-            Ok(display_text) => {
-                println!("Setting display: {}", display_text);
-                lcd.write_str(&display_text, &mut Ets);
+            Ok(d) => {
+                println!("Setting display: {}", d);
+                let display_text: Vec<&str> = d.split("\n").collect();
+                lcd.write_str(&display_text[0], &mut Ets);
+                lcd.set_cursor_pos(40, &mut Ets);
+                lcd.write_str(&display_text[1], &mut Ets);
             },
             _ => {
                 lcd.write_str("Error connecting to\nproxy server.", &mut Ets);
             }
         }
-        FreeRtos::delay_ms(10000);
+        FreeRtos::delay_ms(HZ);
     }
 }
 
