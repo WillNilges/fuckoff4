@@ -97,7 +97,7 @@ fn main() -> anyhow::Result<()> {
     let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
 
     // GET
-    let url = "http://129.21.49.182:8080/will";
+    let url = "http://fuckoff4-proxy.csh.rit.edu";
     let request = client.get(url.as_ref())?;
     let response = request.submit()?;
     let status = response.status();
@@ -112,7 +112,6 @@ fn main() -> anyhow::Result<()> {
             let mut reader = response;
             println!("Status is being matched.");
             loop {
-                println!("byte.");
                 if let Ok(size) = Read::read(&mut reader, &mut buf[offset..]) {
                     if size == 0 {
                         break;
@@ -123,6 +122,11 @@ fn main() -> anyhow::Result<()> {
                         Ok(text) => {
                             println!("We are OK!");
                             print!("{}", text);
+
+                            lcd.clear(&mut Ets);
+                            lcd.write_str(text, &mut Ets);
+
+
                             offset = 0;
                         },
                         Err(error) => {
@@ -141,11 +145,13 @@ fn main() -> anyhow::Result<()> {
         _ => bail!("Unexpected response code: {}", status),
     }
     
-    lcd.clear(&mut Ets);
-    lcd.write_str("Got response.", &mut Ets);
+    //lcd.clear(&mut Ets);
+    //lcd.write_str("Got response.", &mut Ets);
 
     Ok(())
 }
+
+// fn get(url: impl AsRef<str>) -> Result<()> {}
 
 fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()> {
     let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
