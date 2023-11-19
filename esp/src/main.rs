@@ -1,18 +1,17 @@
+use embedded_hal::blocking::delay::DelayMs;
 use esp_idf_hal::{
     delay::Ets,
     gpio::*,
     peripherals::Peripherals
 };
 
-use log::error;
-use chrono::{DateTime, Utc};
+use esp_idf_hal::delay::FreeRtos;
 
 use hd44780_driver::{HD44780, DisplayMode, Cursor, CursorBlink, Display};
 
 use embedded_svc::{
     wifi::{AuthMethod, ClientConfiguration, Configuration},
     http::{client::Client as HttpClient, Method},
-    utils::io,
     io::Read,
 };
 
@@ -26,7 +25,7 @@ use esp_idf_svc::{
 use log::info;
 
 pub mod config;
-use crate::config::{SSID, PASSWORD, API_KEY, CALENDAR_ID};
+use crate::config::{SSID, PASSWORD, PROXY_ROUTE, HZ};
 
 use core::str;
 
@@ -40,25 +39,12 @@ fn main() -> anyhow::Result<()> {
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
 
-    log::info!("Hello, world!");
-
     let peripherals = Peripherals::take()?;
 
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
 
-    let mut wifi = BlockingWifi::wrap(
-        EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
-        sys_loop,
-    )?;
-
-    connect_wifi(&mut wifi)?;
-
-    let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
-
-    info!("Wifi DHCP info: {:?}", ip_info);
-
-    println!("Holy shit it's willard. I'm doing GPIO things.");
+    println!("Booting Fuckoff4...");
 
     let lcd_register = PinDriver::output(peripherals.pins.gpio13)?;
     let lcd_enable = PinDriver::output(peripherals.pins.gpio12)?;
@@ -78,26 +64,54 @@ fn main() -> anyhow::Result<()> {
         &mut Ets,
     ).unwrap();
     
-    lcd.reset(&mut Ets);
-    
-    lcd.clear(&mut Ets);
-
-    lcd.set_display_mode(
+    // Set up the display
+    let _ = lcd.reset(&mut Ets);
+    let _ = lcd.clear(&mut Ets);
+    let _ = lcd.set_display_mode(
         DisplayMode {
             display: Display::On,
-            cursor_visibility: Cursor::Visible,
-            cursor_blink: CursorBlink::On,
+            cursor_visibility: Cursor::Invisible,
+            cursor_blink: CursorBlink::Off,
         },
         &mut Ets
     );
 
-    lcd.write_str("Chom!?", &mut Ets);
+    let _ = lcd.write_str("Connecting...", &mut Ets);
 
-    // Create HTTP(S) client
+    let mut wifi = BlockingWifi::wrap(
+        EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
+        sys_loop,
+    )?;
+    connect_wifi(&mut wifi)?;
+    let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
+    info!("Wifi DHCP info: {:?}", ip_info);
+
+    let _ = lcd.write_str("Setting up...", &mut Ets);
+
+    loop {
+        let proxy_response = query_proxy(PROXY_ROUTE);
+        let _ = lcd.reset(&mut Ets);
+        lcd.clear(&mut Ets);
+        lcd.write_str("Fetch new status", &mut Ets);
+        FreeRtos::delay_ms(HZ);
+        let _ = lcd.reset(&mut Ets);
+        lcd.clear(&mut Ets);
+
+        match proxy_response {
+            Ok(display_text) => {
+                println!("Setting display: {}", display_text);
+                lcd.write_str(&display_text, &mut Ets);
+            },
+            _ => {
+                lcd.write_str("Error connecting to\nproxy server.", &mut Ets);
+            }
+        }
+        FreeRtos::delay_ms(10000);
+    }
+}
+
+fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
     let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
-
-    // GET
-    let url = "http://fuckoff4-proxy.csh.rit.edu";
     let request = client.get(url.as_ref())?;
     let response = request.submit()?;
     let status = response.status();
@@ -110,48 +124,31 @@ fn main() -> anyhow::Result<()> {
             let mut offset = 0;
             let mut total = 0;
             let mut reader = response;
-            println!("Status is being matched.");
+            let mut ex_size = 0;
             loop {
                 if let Ok(size) = Read::read(&mut reader, &mut buf[offset..]) {
                     if size == 0 {
                         break;
                     }
+                    ex_size = size;
                     total += size;
-                    let size_plus_offset = size + offset;
-                    match str::from_utf8(&buf[..size_plus_offset]) {
-                        Ok(text) => {
-                            println!("We are OK!");
-                            print!("{}", text);
-
-                            lcd.clear(&mut Ets);
-                            lcd.write_str(text, &mut Ets);
-
-
-                            offset = 0;
-                        },
-                        Err(error) => {
-                            let valid_up_to = error.valid_up_to();
-                            unsafe {
-                                print!("{}", str::from_utf8_unchecked(&buf[..valid_up_to]));
-                            }
-                            buf.copy_within(valid_up_to.., 0);
-                            offset = size_plus_offset - valid_up_to;
-                        }
-                    }
                 }
             }
-            println!("Total: {} bytes", total);
+
+            let size_plus_offset = ex_size + offset; 
+            match str::from_utf8(&buf[..size_plus_offset]) {
+                Ok(text) => {
+                    offset = 0;
+                    Ok(text.to_string())
+                },
+                Err(_error) => {
+                    bail!("Fuck")
+                }
+            }
         }
         _ => bail!("Unexpected response code: {}", status),
     }
-    
-    //lcd.clear(&mut Ets);
-    //lcd.write_str("Got response.", &mut Ets);
-
-    Ok(())
 }
-
-// fn get(url: impl AsRef<str>) -> Result<()> {}
 
 fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()> {
     let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {

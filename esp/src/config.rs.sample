@@ -1,4 +1,5 @@
-pub const CALENDAR_ID: &str = "";
-pub const API_KEY: &str = "";
 pub const SSID: &str = "";
 pub const PASSWORD: &str = "";
+pub const PROXY_ROUTE: &str = "";
+pub const HZ: u32 = 10000;
+

@@ -1,10 +1,11 @@
 use actix_web::{get, web, App, HttpServer, Responder};
 use chrono::{DateTime, Utc};
-use std::{env, arch::x86_64::__cpuid, task::Wake};
+use std::env;
 use url::form_urlencoded;
 use dotenv::dotenv;
 use serde::Deserialize;
 use anyhow::{anyhow, Result};
+use convert_case::{Case, Casing};
 
 #[derive(Debug, Deserialize, Clone)]
 struct Event {
@@ -30,13 +31,13 @@ struct CalendarEvents {
     items: Vec<Event>,
 }
 
-#[get("/")]
-async fn index() -> impl Responder {
-    println!("Get calendar events");
+#[get("/locations/{location}/event")]
+async fn index(location: web::Path<String>) -> impl Responder {
+    println!("Get calendar events for {}", location);
     let gcal_response = get_calendar_events().await;
     match gcal_response {
         Ok(r) => {
-            parse_next_events(r, 1).await.unwrap()
+            parse_next_events(r, location.to_string().to_case(Case::Title), 1).await.unwrap()
         },
         _ => {
             println!("Failed to get calendar events");
@@ -47,7 +48,7 @@ async fn index() -> impl Responder {
 
 #[get("/{name}")]
 async fn hello(name: web::Path<String>) -> impl Responder {
-    format!("Hello {}!", &name)
+    format!("Eat shit, {}!", &name)
 }
 
 #[actix_web::main]
@@ -66,9 +67,23 @@ fn parse_json(json_str: &str) -> Result<CalendarEvents> {
     serde_json::from_str(json_str).map_err(|e| anyhow!("{}", e))
 }
 
-async fn parse_next_events(gcal_payload: String, num: i32) -> Result<String> {
+async fn parse_next_events(gcal_payload: String, location: String, num: i32) -> Result<String> {
     match parse_json(gcal_payload.as_str()) {
-        Ok(calendar_events) => format_gcal_1602(calendar_events.items[0].clone()),
+        Ok(calendar_events) => {
+            for e in calendar_events.items {
+                match e.location {
+                    Some(ref l) => {
+                        if l.contains(&location) {
+                            return format_gcal_1602(e)
+                        }
+                    },
+                    _ => {
+                        
+                    },
+                }
+            }
+            return Ok("No upcoming events.".to_string())
+        },
         Err(err) => Err(anyhow!("Error parsing JSON: {}", err)),
     } 
 }
