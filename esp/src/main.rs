@@ -13,6 +13,7 @@ use embedded_svc::{
     wifi::{AuthMethod, ClientConfiguration, Configuration},
     http::{client::Client as HttpClient, Method},
     utils::io,
+    io::Read,
 };
 
 use esp_idf_svc::{
@@ -26,6 +27,10 @@ use log::info;
 
 pub mod config;
 use crate::config::{SSID, PASSWORD, API_KEY, CALENDAR_ID};
+
+use core::str;
+
+use anyhow::bail;
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -86,13 +91,58 @@ fn main() -> anyhow::Result<()> {
         &mut Ets
     );
 
-    lcd.write_str("Hello, world!", &mut Ets);
+    lcd.write_str("Chom!?", &mut Ets);
 
     // Create HTTP(S) client
     let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
 
     // GET
-    get_request(&mut client)?;
+    let url = "http://129.21.49.182:8080/will";
+    let request = client.get(url.as_ref())?;
+    let response = request.submit()?;
+    let status = response.status();
+
+    println!("Status: {}", status);
+
+    match status {
+        200..=299 => {
+            let mut buf = [0_u8; 256];
+            let mut offset = 0;
+            let mut total = 0;
+            let mut reader = response;
+            println!("Status is being matched.");
+            loop {
+                println!("byte.");
+                if let Ok(size) = Read::read(&mut reader, &mut buf[offset..]) {
+                    if size == 0 {
+                        break;
+                    }
+                    total += size;
+                    let size_plus_offset = size + offset;
+                    match str::from_utf8(&buf[..size_plus_offset]) {
+                        Ok(text) => {
+                            println!("We are OK!");
+                            print!("{}", text);
+                            offset = 0;
+                        },
+                        Err(error) => {
+                            let valid_up_to = error.valid_up_to();
+                            unsafe {
+                                print!("{}", str::from_utf8_unchecked(&buf[..valid_up_to]));
+                            }
+                            buf.copy_within(valid_up_to.., 0);
+                            offset = size_plus_offset - valid_up_to;
+                        }
+                    }
+                }
+            }
+            println!("Total: {} bytes", total);
+        }
+        _ => bail!("Unexpected response code: {}", status),
+    }
+    
+    lcd.clear(&mut Ets);
+    lcd.write_str("Got response.", &mut Ets);
 
     Ok(())
 }
@@ -118,52 +168,4 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()>
     info!("Wifi netif up");
 
     Ok(())
-}
-
-fn get_request(client: &mut HttpClient<EspHttpConnection>) -> anyhow::Result<()> {
-    // Get the current UTC time
-    let utc: DateTime<Utc> = Utc::now();
-
-    // Format the time as ISO 8601
-    let iso_time = utc.to_rfc3339();
-
-    let headers = [
-        ("maxResults", "10"),
-        ("orderBy", "startTime"),
-        ("showDeleted", "false"),
-        ("singleEvents", "true"),
-        ("timeMin", &iso_time),
-        ("fields", "items(location, start, end, summary, description"),
-        ("key", API_KEY),
-    ];
-
-    let url = format!("https://www.googleapis.com/calendar/v3/calendars/{}/events", CALENDAR_ID);
-
-    // Send request
-    //
-    // Note: If you don't want to pass in any headers, you can also use `client.get(url, headers)`.
-    let request = client.request(Method::Get, &url, &headers)?;
-    info!("-> GET {}", url);
-    let mut response = request.submit()?;
-
-    // Process response
-    let status = response.status();
-    info!("<- {}", status);
-    let mut buf = [0u8; 1024];
-    let bytes_read = io::try_read_full(&mut response, &mut buf).map_err(|e| e.0)?;
-    info!("Read {} bytes", bytes_read);
-    match std::str::from_utf8(&buf[0..bytes_read]) {
-        Ok(body_string) => info!(
-            "Response body (truncated to {} bytes): {:?}",
-            buf.len(),
-            body_string
-        ),
-        Err(e) => error!("Error decoding response body: {}", e),
-    };
-
-    // Drain the remaining response bytes
-    while response.read(&mut buf)? > 0 {}
-
-    Ok(())
-    
 }
