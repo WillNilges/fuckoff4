@@ -1,5 +1,5 @@
 use actix_web::{get, web, App, HttpServer, Responder};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, Duration, FixedOffset};
 use std::env;
 use url::form_urlencoded;
 use dotenv::dotenv;
@@ -20,7 +20,6 @@ struct Event {
 struct EventDateTime {
     #[serde(rename = "dateTime")]
     date_time: Option<String>,
-    date: Option<String>,
     #[serde(rename = "timeZone")]
     time_zone: Option<String>,
 }
@@ -77,7 +76,7 @@ async fn parse_next_events(gcal_payload: String, location: String, num: i32) -> 
                             return format_gcal_1602(e)
                         }
                     },
-                    _ => {
+                    _ =>{
                         
                     },
                 }
@@ -89,11 +88,65 @@ async fn parse_next_events(gcal_payload: String, location: String, num: i32) -> 
 }
 
 fn format_gcal_1602(event: Event) -> Result<String> {
-    match event.start.date {
-        Some(d) => Ok(format!("{}\n{}", event.summary, d)),
-        None => Ok(event.summary)
-    }
+    println!("Event: {:?}", event);
+    match event.start.date_time {
+        Some(time) => {
+            let duration_until = time_until(&time);
+            if duration_until > Duration::zero() {
+                let t = format_duration(duration_until);
+                return Ok(format!("{}\nIn {}", event.summary, t))
+            }
+        },
+        None => return Ok(event.summary)
+    };
+
+    // If that didn't work, then the event is probably already going.
+    // Check if we can get the time until.
+    match event.end.date_time {
+        Some(time) => {
+            let duration_until = time_until(&time);
+            if duration_until > Duration::zero() {
+                let t = format_duration(duration_until);
+                return Ok(format!("{}\n{} Left", event.summary, t))
+            }
+        },
+        None => return Ok(event.summary)
+    };
+    return Ok(event.summary)
 }
+
+fn time_until(timestamp: &str) -> Duration {
+    // Parse the ISO timestamp
+    let parsed_timestamp = DateTime::parse_from_rfc3339(timestamp)
+        .expect("Failed to parse timestamp")
+        .with_timezone(&Utc);
+
+    // Get the current UTC time
+    let current_time = Utc::now();
+
+    // Calculate the duration until the specified timestamp
+    parsed_timestamp.signed_duration_since(current_time)
+}
+
+fn format_duration(duration: Duration) -> String {
+    let seconds = duration.num_seconds();
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let remaining_seconds = seconds % 60;
+
+    format!("{:02}:{:02}:{:02}", hours, minutes, remaining_seconds)
+}
+
+
+/*fn time_until_timestamp(timestamp: &str) -> Option<Duration> {
+    let target_time: DateTime<FixedOffset> = match DateTime::parse_from_str(timestamp, "%Y-%m-%dT%H:%M:%S%:z") {
+        Ok(time) => time,
+        Err(_) => return None, // Invalid timestamp format
+    };
+    let current_time: DateTime<Utc> = Utc::now();
+    let duration_until_target = target_time.signed_duration_since(current_time);
+    Some(duration_until_target)
+}*/
 
 async fn get_calendar_events() -> anyhow::Result<String> {
     // Get the current UTC time
