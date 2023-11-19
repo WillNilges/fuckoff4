@@ -11,7 +11,7 @@ use hd44780_driver::{HD44780, DisplayMode, Cursor, CursorBlink, Display};
 
 use embedded_svc::{
     wifi::{AuthMethod, ClientConfiguration, Configuration},
-    http::{client::Client as HttpClient, Method},
+    http::{client::Client as HttpClient},
     io::Read,
 };
 
@@ -97,10 +97,15 @@ fn main() -> anyhow::Result<()> {
         let _ = lcd.reset(&mut Ets);
         lcd.clear(&mut Ets);
 
+        // TODO: use shift_display to scroll the title, probably have to re-draw
+        // the time each frame. Need a timestamp for last refresh, and check
+        // that every frame, refreshing if the time since that hits like 30
+        // or whatever
         match proxy_response {
             Ok(d) => {
                 println!("Setting display: {}", d);
                 let display_text: Vec<&str> = d.split("\n").collect();
+
                 lcd.write_str(&display_text[0], &mut Ets);
                 lcd.set_cursor_pos(40, &mut Ets);
                 lcd.write_str(&display_text[1], &mut Ets);
