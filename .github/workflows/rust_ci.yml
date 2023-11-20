@@ -11,6 +11,10 @@ env:
   CARGO_TERM_COLOR: always
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+defaults:
+  run:
+    working-directory: esp
+
 jobs:
   rust-checks:
     name: Rust Checks
@@ -36,5 +40,7 @@ jobs:
           default: true
           buildtargets: esp32
           ldproxy: true
+      - name: Setup config
+        run: cp src/config.rs.sample src/config.rs
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
