@@ -1,8 +1,8 @@
-use chrono::{DateTime, Utc, Duration, NaiveDate};
+use anyhow::anyhow;
+use chrono::{DateTime, Duration, NaiveDate, Utc};
+use serde::Deserialize;
 use std::env;
 use url::form_urlencoded;
-use serde::Deserialize;
-use anyhow::anyhow;
 
 // Struct that fits the dateTime field of the Google Calendar API
 // response
@@ -28,35 +28,33 @@ pub struct Event {
 
 impl Event {
     pub fn format_1602(&self) -> String {
-        match &self.start.date_time {
-            Some(time) => {
-                let duration_until = Self::time_until(&time);
-                if duration_until > Duration::zero() {
-                    let t = Self::format_duration(duration_until);
-                    return format!("{}\nIn {}", self.summary, t)
+        if let Some(start_time) = &self.start.date_time {
+            let duration_until = Self::time_until(start_time);
+            if duration_until > Duration::zero() {
+                let t = Self::format_duration(duration_until);
+                return format!("{}\nIn {}", self.summary, t);
+            } else {
+                // If that didn't work, then the event is probably already going.
+                // Check if we can get the time until.
+                if let Some(end_time) = &self.end.date_time {
+                    let duration_until = Self::time_until(end_time);
+                    if duration_until > Duration::zero() {
+                        let t = Self::format_duration(duration_until);
+                        return format!("{}\n{} Left", self.summary, t);
+                    }
                 }
-            },
-            None => return self.summary.clone()
-        };
-        // If that didn't work, then the event is probably already going.
-        // Check if we can get the time until.
-        match &self.end.date_time {
-            Some(time) => {
-                let duration_until = Self::time_until(&time);
-                if duration_until > Duration::zero() {
-                    let t = Self::format_duration(duration_until);
-                    return format!("{}\n{} Left", self.summary, t)
-                }
-            },
-            None => return self.summary.clone()
-        };
-        return self.summary.clone()
+            }
+        }
+
+        // If we don't have any datetime info, then
+        // just return the title of the event
+        self.summary.clone()
     }
 
     fn time_until(timestamp: &DateTime<Utc>) -> Duration {
-       // let parsed_timestamp = DateTime::parse_from_rfc3339(timestamp)
-       //     .expect("Failed to parse timestamp")
-       //     .with_timezone(&Utc);
+        // let parsed_timestamp = DateTime::parse_from_rfc3339(timestamp)
+        //     .expect("Failed to parse timestamp")
+        //     .with_timezone(&Utc);
 
         let current_time = Utc::now();
 
@@ -82,12 +80,10 @@ pub struct CalendarEvents {
 
 impl CalendarEvents {
     // Call the Google Calendar API and return a usable object from that
-    pub async fn new()  -> anyhow::Result<Self> {
+    pub async fn new() -> anyhow::Result<Self> {
         let gcal_resp = Self::query_gcal().await?;
-        println!("Response: {}", gcal_resp);
-        let events: Self = serde_json::from_str::<CalendarEvents>(
-            gcal_resp.as_str()).map_err(|e| anyhow!("{}", e)
-        )?;
+        let events: Self = serde_json::from_str::<CalendarEvents>(gcal_resp.as_str())
+            .map_err(|e| anyhow!("{}", e))?;
         Ok(events)
     }
 
@@ -104,7 +100,10 @@ impl CalendarEvents {
             ("showDeleted", "false"),
             ("singleEvents", "true"),
             ("timeMin", &iso_time),
-            ("fields", "kind,items(location, start, end, summary, description)"),
+            (
+                "fields",
+                "kind,items(location, start, end, summary, description)",
+            ),
             ("key", &api_key),
         ];
 
@@ -119,42 +118,40 @@ impl CalendarEvents {
         );
 
         let body = reqwest::get(url).await?.text().await?;
-        
+
         Ok(body)
-    } 
+    }
 
     pub fn get_next_at_location(&self, location: String) -> Option<Event> {
-         for e in &self.items {
-            match e.location {
-                Some(ref l) => {
-                    if l.contains(&location) {
-                        return Some(e.clone())
-                    }
-                },
-                None => {},
+        for e in &self.items {
+            if let Some(ref l) = e.location {
+                if l.contains(&location) {
+                    return Some(e.clone());
+                }
             }
         }
         None
     }
 
-    pub fn is_free_at_location(&self, location: String, start: DateTime<Utc>, end: DateTime<Utc>) -> bool {
+    pub fn is_free_at_location(
+        &self,
+        location: String,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> bool {
         let query = (start, end);
         for e in &self.items {
-            match e.location {
-                Some(ref l) => {
-                    if l.contains(&location) {
-                        let e_times = (e.start.date_time.unwrap(), e.end.date_time.unwrap());
-                        if Self::is_overlap(&query, &e_times) {
-                            return false
-                        }
+            if let Some(ref l) = e.location {
+                if l.contains(&location) {
+                    let e_times = (e.start.date_time.unwrap(), e.end.date_time.unwrap());
+                    if Self::is_overlap(&query, &e_times) {
+                        return false;
                     }
                 }
-                None => {},
             }
         }
-        return true
+        true
     }
-
 
     fn is_overlap(
         proposed: &(DateTime<Utc>, DateTime<Utc>),
@@ -188,7 +185,7 @@ mod tests {
                         date_time: NaiveDate::from_ymd_opt(2016, 7, 8).unwrap().and_hms_opt(9, 10, 11).unwrap(), // NaiveDateTime{ date: "2023-11-20", time: 12:40}, //Some("zyx".to_string()),
                         time_zone: None,
                     }
-                } 
+                }
             ],
         };
         assert!(true);

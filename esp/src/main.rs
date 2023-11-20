@@ -1,31 +1,26 @@
-use embedded_hal::blocking::delay::DelayMs;
-use esp_idf_hal::{
-    delay::Ets,
-    gpio::*,
-    peripherals::Peripherals
-};
+use esp_idf_hal::{delay::Ets, gpio::*, peripherals::Peripherals};
 
 use esp_idf_hal::delay::FreeRtos;
 
-use hd44780_driver::{HD44780, DisplayMode, Cursor, CursorBlink, Display};
+use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780};
 
 use embedded_svc::{
-    wifi::{AuthMethod, ClientConfiguration, Configuration},
-    http::{client::Client as HttpClient},
+    http::client::Client as HttpClient,
     io::Read,
+    wifi::{AuthMethod, ClientConfiguration, Configuration},
 };
 
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
-    nvs::EspDefaultNvsPartition,
-    wifi::{BlockingWifi, EspWifi}, 
     http::client::EspHttpConnection,
+    nvs::EspDefaultNvsPartition,
+    wifi::{BlockingWifi, EspWifi},
 };
 
 use log::info;
 
 pub mod config;
-use crate::config::{SSID, PASSWORD, PROXY_ROUTE, HZ};
+use crate::config::{HZ, PASSWORD, PROXY_ROUTE, SSID};
 
 use core::str;
 
@@ -48,7 +43,7 @@ fn main() -> anyhow::Result<()> {
 
     let lcd_register = PinDriver::output(peripherals.pins.gpio13)?;
     let lcd_enable = PinDriver::output(peripherals.pins.gpio12)?;
-    
+
     let lcd_d4 = PinDriver::output(peripherals.pins.gpio14)?;
     let lcd_d5 = PinDriver::output(peripherals.pins.gpio27)?;
     let lcd_d6 = PinDriver::output(peripherals.pins.gpio26)?;
@@ -62,8 +57,9 @@ fn main() -> anyhow::Result<()> {
         lcd_d6,
         lcd_d7,
         &mut Ets,
-    ).unwrap();
-    
+    )
+    .unwrap();
+
     // Set up the display
     let _ = lcd.reset(&mut Ets);
     let _ = lcd.clear(&mut Ets);
@@ -73,7 +69,7 @@ fn main() -> anyhow::Result<()> {
             cursor_visibility: Cursor::Invisible,
             cursor_blink: CursorBlink::Off,
         },
-        &mut Ets
+        &mut Ets,
     );
 
     let _ = lcd.write_str("Connecting...", &mut Ets);
@@ -97,20 +93,20 @@ fn main() -> anyhow::Result<()> {
         // the time each frame. Need a timestamp for last refresh, and check
         // that every frame, refreshing if the time since that hits like 30
         // or whatever
-        
+
         // FIXME: The display has a buffer of some sort that the driver doesnt
         // really account for. I think the max we can do is 42.
         // Maybe I will chunk it into 40 characters.
-        
+
         match proxy_response {
             Ok(d) => {
                 println!("Setting display: {}", d);
-                let display_text: Vec<&str> = d.split("\n").collect();
+                let display_text: Vec<&str> = d.split('\n').collect();
                 let time = format!("{: <16}", &display_text[1]);
 
                 if display_text[0].len() > 16 {
-                    for i in (0..display_text[0].len()-12).step_by(4) {
-                        let mut t: String = display_text[0].chars().into_iter().skip(i).take(16).collect();
+                    for i in (0..display_text[0].len() - 12).step_by(4) {
+                        let mut t: String = display_text[0].chars().skip(i).take(16).collect();
                         t = format!("{: <16}", t);
                         let _ = lcd.set_cursor_pos(0, &mut Ets);
                         let _ = lcd.write_str(&t, &mut Ets);
@@ -127,30 +123,7 @@ fn main() -> anyhow::Result<()> {
                     let _ = lcd.write_str(&time, &mut Ets);
                     FreeRtos::delay_ms(HZ);
                 }
-
-                //                                        | It breaks here.
-                // Willards test event that is really long and has a very longwinded explaination
-                //let _ = lcd.write_str("Willards test event that is really longxx", &mut Ets);
-                //let _ = lcd.write_str("abcdefghijklmnopqrstuvwxyz 1234567890 ss", &mut Ets);
-                /*
-                let _ = lcd.write_str(&display_text[0], &mut Ets);
-                let _ = lcd.set_cursor_pos(40, &mut Ets);
-                let _ = lcd.write_str(&display_text[1], &mut Ets);
-                */
-
-                // For now, I am going to kludge this. I will scroll the title three times
-                // then refresh. If it's longer than 16 characters, it will take
-                // at least 8 seconds to scroll, and that's plenty of time between
-                // refreshes.
-                /*if display_text[0].len() > 16 {
-                    display_text[0].chars().for_each(|_| {
-                        let _ = lcd.shift_display(hd44780_driver::Direction::Left, &mut Ets);
-                        FreeRtos::delay_ms(1000);
-                    }); 
-                } else {
-                    FreeRtos::delay_ms(HZ);
-                }*/
-            },
+            }
             _ => {
                 let _ = lcd.write_str("Error connecting to\nproxy server.", &mut Ets);
             }
@@ -169,8 +142,7 @@ fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
     match status {
         200..=299 => {
             let mut buf = [0_u8; 256];
-            let mut offset = 0;
-            let mut total = 0;
+            let offset = 0;
             let mut reader = response;
             let mut ex_size = 0;
             loop {
@@ -179,16 +151,12 @@ fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
                         break;
                     }
                     ex_size = size;
-                    total += size;
                 }
             }
 
-            let size_plus_offset = ex_size + offset; 
+            let size_plus_offset = ex_size + offset;
             match str::from_utf8(&buf[..size_plus_offset]) {
-                Ok(text) => {
-                    offset = 0;
-                    Ok(text.to_string())
-                },
+                Ok(text) => Ok(text.to_string()),
                 Err(_error) => {
                     bail!("Fuck")
                 }

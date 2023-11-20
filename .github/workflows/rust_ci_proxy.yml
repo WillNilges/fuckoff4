@@ -1,19 +1,23 @@
 name: Continuous Integration
 
 on:
-  push:
+  pull_request:
     paths-ignore:
       - "**/README.md"
-  pull_request:
-  workflow_dispatch:
+      - "esp/**"
+#  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+defaults:
+  run:
+    working-directory: proxy
+
 jobs:
   rust-checks:
-    name: Rust Checks
+    name: Rust Checks (Proxy)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -31,10 +35,10 @@ jobs:
       - name: Enable caching
         uses: Swatinem/rust-cache@v2
       - name: Setup Rust
-        uses: esp-rs/xtensa-toolchain@v1.5
-        with:
-          default: true
-          buildtargets: esp32
-          ldproxy: true
+        uses: actions-rs/toolchain@v1 
+        with: 
+          toolchain: stable
+          override: true 
+          components: rustfmt, clippy
       - name: Run command
         run: cargo ${{ matrix.action.command }} ${{ matrix.action.args }}
