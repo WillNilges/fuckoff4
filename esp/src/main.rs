@@ -90,31 +90,71 @@ fn main() -> anyhow::Result<()> {
 
     loop {
         let proxy_response = query_proxy(PROXY_ROUTE);
-        let _ = lcd.reset(&mut Ets);
-        lcd.clear(&mut Ets);
-        lcd.write_str("Fetch new status", &mut Ets);
-        FreeRtos::delay_ms(1000);
-        let _ = lcd.reset(&mut Ets);
-        lcd.clear(&mut Ets);
+        //let _ = lcd.reset(&mut Ets);
+        //let _ = lcd.clear(&mut Ets);
 
         // TODO: use shift_display to scroll the title, probably have to re-draw
         // the time each frame. Need a timestamp for last refresh, and check
         // that every frame, refreshing if the time since that hits like 30
         // or whatever
+        
+        // FIXME: The display has a buffer of some sort that the driver doesnt
+        // really account for. I think the max we can do is 42.
+        // Maybe I will chunk it into 40 characters.
+        
         match proxy_response {
             Ok(d) => {
                 println!("Setting display: {}", d);
                 let display_text: Vec<&str> = d.split("\n").collect();
+                let time = format!("{: <16}", &display_text[1]);
 
-                lcd.write_str(&display_text[0], &mut Ets);
-                lcd.set_cursor_pos(40, &mut Ets);
-                lcd.write_str(&display_text[1], &mut Ets);
+                if display_text[0].len() > 16 {
+                    for i in (0..display_text[0].len()-12).step_by(4) {
+                        let mut t: String = display_text[0].chars().into_iter().skip(i).take(16).collect();
+                        t = format!("{: <16}", t);
+                        let _ = lcd.set_cursor_pos(0, &mut Ets);
+                        let _ = lcd.write_str(&t, &mut Ets);
+                        let _ = lcd.set_cursor_pos(40, &mut Ets);
+                        let _ = lcd.write_str(&time, &mut Ets);
+                        FreeRtos::delay_ms(1000);
+                    }
+                    FreeRtos::delay_ms(1000);
+                } else {
+                    let text = format!("{: <16}", &display_text[0]);
+                    let _ = lcd.set_cursor_pos(0, &mut Ets);
+                    let _ = lcd.write_str(&text, &mut Ets);
+                    let _ = lcd.set_cursor_pos(40, &mut Ets);
+                    let _ = lcd.write_str(&time, &mut Ets);
+                    FreeRtos::delay_ms(HZ);
+                }
+
+                //                                        | It breaks here.
+                // Willards test event that is really long and has a very longwinded explaination
+                //let _ = lcd.write_str("Willards test event that is really longxx", &mut Ets);
+                //let _ = lcd.write_str("abcdefghijklmnopqrstuvwxyz 1234567890 ss", &mut Ets);
+                /*
+                let _ = lcd.write_str(&display_text[0], &mut Ets);
+                let _ = lcd.set_cursor_pos(40, &mut Ets);
+                let _ = lcd.write_str(&display_text[1], &mut Ets);
+                */
+
+                // For now, I am going to kludge this. I will scroll the title three times
+                // then refresh. If it's longer than 16 characters, it will take
+                // at least 8 seconds to scroll, and that's plenty of time between
+                // refreshes.
+                /*if display_text[0].len() > 16 {
+                    display_text[0].chars().for_each(|_| {
+                        let _ = lcd.shift_display(hd44780_driver::Direction::Left, &mut Ets);
+                        FreeRtos::delay_ms(1000);
+                    }); 
+                } else {
+                    FreeRtos::delay_ms(HZ);
+                }*/
             },
             _ => {
-                lcd.write_str("Error connecting to\nproxy server.", &mut Ets);
+                let _ = lcd.write_str("Error connecting to\nproxy server.", &mut Ets);
             }
         }
-        FreeRtos::delay_ms(HZ);
     }
 }
 
