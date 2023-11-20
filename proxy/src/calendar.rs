@@ -1,0 +1,139 @@
+use chrono::{DateTime, Utc, Duration};
+use std::env;
+use url::form_urlencoded;
+use serde::Deserialize;
+use anyhow::{anyhow, Result};
+
+// Struct that fits a single event from the Google Calendar
+// API response
+#[derive(Debug, Deserialize, Clone)]
+pub struct Event {
+    pub summary: String,
+    pub description: Option<String>,
+    pub location: Option<String>,
+    pub start: EventDateTime,
+    pub end: EventDateTime,
+}
+
+impl Event {
+    pub fn format_1602(&self) -> String {
+        match &self.start.date_time {
+            Some(time) => {
+                let duration_until = Self::time_until(&time);
+                if duration_until > Duration::zero() {
+                    let t = Self::format_duration(duration_until);
+                    return format!("{}\nIn {}", self.summary, t)
+                }
+            },
+            None => return self.summary.clone()
+        };
+
+        // If that didn't work, then the event is probably already going.
+        // Check if we can get the time until.
+        match &self.end.date_time {
+            Some(time) => {
+                let duration_until = Self::time_until(&time);
+                if duration_until > Duration::zero() {
+                    let t = Self::format_duration(duration_until);
+                    return format!("{}\n{} Left", self.summary, t)
+                }
+            },
+            None => return self.summary.clone()
+        };
+        return self.summary.clone()
+    }
+
+    fn time_until(timestamp: &str) -> Duration {
+        // Parse the ISO timestamp
+        let parsed_timestamp = DateTime::parse_from_rfc3339(timestamp)
+            .expect("Failed to parse timestamp")
+            .with_timezone(&Utc);
+
+        let current_time = Utc::now();
+
+        parsed_timestamp.signed_duration_since(current_time)
+    }
+
+    fn format_duration(duration: Duration) -> String {
+        let seconds = duration.num_seconds();
+        let hours = seconds / 3600;
+        let minutes = (seconds % 3600) / 60;
+
+        format!("{:02}:{:02}", hours, minutes)
+    }
+}
+
+// Struct that fits the dateTime field of the Google Calendar API
+// response
+#[derive(Debug, Deserialize, Clone)]
+pub struct EventDateTime {
+    #[serde(rename = "dateTime")]
+    pub date_time: Option<String>,
+    #[serde(rename = "timeZone")]
+    pub time_zone: Option<String>,
+}
+
+// Object used to grok payload returned directly by the Google Calendar
+// API
+#[derive(Debug, Deserialize)]
+pub struct CalendarEvents {
+    pub kind: String,
+    pub items: Vec<Event>,
+}
+
+impl CalendarEvents {
+    // Call the Google Calendar API and return a usable object from that
+    pub async fn new()  -> anyhow::Result<Self> {
+        let gcal_resp = Self::query_gcal().await?;
+        let events: Self = serde_json::from_str::<CalendarEvents>(
+            gcal_resp.as_str()).map_err(|e| anyhow!("{}", e)
+        )?;
+        Ok(events)
+    }
+
+    // Perform Google Calendar API Call
+    async fn query_gcal() -> anyhow::Result<String> {
+        let utc: DateTime<Utc> = Utc::now();
+        let iso_time = utc.to_rfc3339();
+        let api_key = env::var("API_KEY")?;
+        let calendar_id = env::var("CALENDAR_ID")?;
+
+        let params = [
+            ("maxResults", "10"),
+            ("orderBy", "startTime"),
+            ("showDeleted", "false"),
+            ("singleEvents", "true"),
+            ("timeMin", &iso_time),
+            ("fields", "kind,items(location, start, end, summary, description)"),
+            ("key", &api_key),
+        ];
+
+        // Encode parameters into a query string
+        let encoded_params: String = form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(params.iter())
+            .finish();
+
+        let url = format!(
+            "https://www.googleapis.com/calendar/v3/calendars/{}/events?{}",
+            calendar_id, encoded_params
+        );
+
+        let body = reqwest::get(url).await?.text().await?;
+        
+        Ok(body)
+    } 
+
+    pub fn get_next_at_location(&self, location: String) -> Option<Event> {
+         for e in &self.items {
+            match e.location {
+                Some(ref l) => {
+                    if l.contains(&location) {
+                        return Some(e.clone())
+                    }
+                },
+                None => {},
+            }
+        }
+        None
+    }
+}
