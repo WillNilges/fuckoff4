@@ -1,12 +1,11 @@
 name: Continuous Integration
 
 on:
-  push:
+  pull_request:
     paths-ignore:
       - "**/README.md"
       - "esp/**"
-  pull_request:
-  workflow_dispatch:
+#  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
