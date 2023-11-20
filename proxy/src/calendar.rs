@@ -1,8 +1,19 @@
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Utc, Duration, NaiveDate};
 use std::env;
 use url::form_urlencoded;
 use serde::Deserialize;
-use anyhow::{anyhow, Result};
+use anyhow::anyhow;
+
+// Struct that fits the dateTime field of the Google Calendar API
+// response
+#[derive(Debug, Deserialize, Clone)]
+pub struct EventTimeInfo {
+    #[serde(rename = "dateTime")]
+    pub date_time: Option<DateTime<Utc>>, // All-day events only have a date
+    pub date: Option<NaiveDate>,
+    #[serde(rename = "timeZone")]
+    pub time_zone: Option<String>,
+}
 
 // Struct that fits a single event from the Google Calendar
 // API response
@@ -11,8 +22,8 @@ pub struct Event {
     pub summary: String,
     pub description: Option<String>,
     pub location: Option<String>,
-    pub start: EventDateTime,
-    pub end: EventDateTime,
+    pub start: EventTimeInfo,
+    pub end: EventTimeInfo,
 }
 
 impl Event {
@@ -27,7 +38,6 @@ impl Event {
             },
             None => return self.summary.clone()
         };
-
         // If that didn't work, then the event is probably already going.
         // Check if we can get the time until.
         match &self.end.date_time {
@@ -43,15 +53,14 @@ impl Event {
         return self.summary.clone()
     }
 
-    fn time_until(timestamp: &str) -> Duration {
-        // Parse the ISO timestamp
-        let parsed_timestamp = DateTime::parse_from_rfc3339(timestamp)
-            .expect("Failed to parse timestamp")
-            .with_timezone(&Utc);
+    fn time_until(timestamp: &DateTime<Utc>) -> Duration {
+       // let parsed_timestamp = DateTime::parse_from_rfc3339(timestamp)
+       //     .expect("Failed to parse timestamp")
+       //     .with_timezone(&Utc);
 
         let current_time = Utc::now();
 
-        parsed_timestamp.signed_duration_since(current_time)
+        timestamp.signed_duration_since(current_time)
     }
 
     fn format_duration(duration: Duration) -> String {
@@ -61,16 +70,6 @@ impl Event {
 
         format!("{:02}:{:02}", hours, minutes)
     }
-}
-
-// Struct that fits the dateTime field of the Google Calendar API
-// response
-#[derive(Debug, Deserialize, Clone)]
-pub struct EventDateTime {
-    #[serde(rename = "dateTime")]
-    pub date_time: Option<String>,
-    #[serde(rename = "timeZone")]
-    pub time_zone: Option<String>,
 }
 
 // Object used to grok payload returned directly by the Google Calendar
@@ -85,6 +84,7 @@ impl CalendarEvents {
     // Call the Google Calendar API and return a usable object from that
     pub async fn new()  -> anyhow::Result<Self> {
         let gcal_resp = Self::query_gcal().await?;
+        println!("Response: {}", gcal_resp);
         let events: Self = serde_json::from_str::<CalendarEvents>(
             gcal_resp.as_str()).map_err(|e| anyhow!("{}", e)
         )?;
@@ -136,4 +136,61 @@ impl CalendarEvents {
         }
         None
     }
+
+    pub fn is_free_at_location(&self, location: String, start: DateTime<Utc>, end: DateTime<Utc>) -> bool {
+        let query = (start, end);
+        for e in &self.items {
+            match e.location {
+                Some(ref l) => {
+                    if l.contains(&location) {
+                        let e_times = (e.start.date_time.unwrap(), e.end.date_time.unwrap());
+                        if Self::is_overlap(&query, &e_times) {
+                            return false
+                        }
+                    }
+                }
+                None => {},
+            }
+        }
+        return true
+    }
+
+
+    fn is_overlap(
+        proposed: &(DateTime<Utc>, DateTime<Utc>),
+        existing: &(DateTime<Utc>, DateTime<Utc>),
+    ) -> bool {
+        proposed.0 < existing.1 && proposed.1 > existing.0
+    }
 }
+
+/*
+#[cfg(test)]
+mod tests {
+    use crate::calendar::{CalendarEvents, Event, EventTimeInfo};
+    use chrono::NaiveDate;
+
+
+    #[test]
+    fn test_is_free_at_location() {
+        let test_cal_events = CalendarEvents {
+            kind: "".to_string(),
+            items: vec![
+                Event {
+                    summary: "Test".to_string(),
+                    description: None,
+                    location: Some("Lounge".to_string()),
+                    start: EventTimeInfo {
+                        date_time: NaiveDate::from_ymd_opt(2016, 7, 8).unwrap().and_hms_opt(9, 10, 11).unwrap(),//Some("xyz".to_string()),
+                        time_zone: None,
+                    } ,
+                    end: EventTimeInfo {
+                        date_time: NaiveDate::from_ymd_opt(2016, 7, 8).unwrap().and_hms_opt(9, 10, 11).unwrap(), // NaiveDateTime{ date: "2023-11-20", time: 12:40}, //Some("zyx".to_string()),
+                        time_zone: None,
+                    }
+                } 
+            ],
+        };
+        assert!(true);
+    }
+}*/

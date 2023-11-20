@@ -1,4 +1,5 @@
 use actix_web::{get, web, App, HttpServer, Responder};
+use chrono::{DateTime, Utc};
 use dotenv::dotenv;
 use convert_case::{Case, Casing};
 
@@ -19,6 +20,30 @@ async fn screen(location: web::Path<String>) -> impl Responder {
                     return "No upcoming events.".to_string()
                 }
             }
+        },
+        Err(e) => {
+            return format!("Failed to get calendar events: {}", e).to_string()
+        },
+    }
+}
+
+#[get("/reserve/<location>/")]
+async fn reserve(location: web::Path<String>, start: web::Path<String>, end: web::Path<String>) -> impl Responder {
+    let proposed_start = DateTime::parse_from_rfc3339(&start.to_string())
+            .expect("Failed to parse timestamp")
+            .with_timezone(&Utc);
+
+    let proposed_end = DateTime::parse_from_rfc3339(&end.to_string())
+            .expect("Failed to parse timestamp")
+            .with_timezone(&Utc);
+
+    let upcoming_events = CalendarEvents::new().await;
+    match upcoming_events {
+        Ok(u) => {
+            if u.is_free_at_location(location.to_string(), proposed_start, proposed_end) {
+                return "Is free!".to_string()
+            }           
+            return "Reserved at that time.".to_string()
         },
         _ => {
             return "Failed to get calendar events".to_string()
