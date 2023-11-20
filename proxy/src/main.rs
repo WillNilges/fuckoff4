@@ -37,11 +37,11 @@ async fn reserve(
     match upcoming_events {
         Ok(u) => {
             if u.is_free_at_location(location.to_string(), proposed_start, proposed_end) {
-                "Is free!".to_string();
+                return "Is free!";
             }
-            "Reserved at that time.".to_string()
+            "Reserved at that time."
         }
-        _ => "Failed to get calendar events".to_string(),
+        _ => "Failed to get calendar events",
     }
 }
 
@@ -52,7 +52,7 @@ async fn name(name: web::Path<String>) -> impl Responder {
 
 #[get("/")]
 async fn test() -> impl Responder {
-    format!("FuckOff!")
+    "FuckOff!"
 }
 
 #[actix_web::main]

@@ -82,7 +82,6 @@ impl CalendarEvents {
     // Call the Google Calendar API and return a usable object from that
     pub async fn new() -> anyhow::Result<Self> {
         let gcal_resp = Self::query_gcal().await?;
-        println!("Response: {}", gcal_resp);
         let events: Self = serde_json::from_str::<CalendarEvents>(gcal_resp.as_str())
             .map_err(|e| anyhow!("{}", e))?;
         Ok(events)
