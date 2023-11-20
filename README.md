@@ -32,7 +32,8 @@ configurable.
 
 ### Routes
 
-**/locations/<location>/event**
+**`/locations/<location>/event`**
+
 Queries the Google Calendar API for events, then looks for the next event that is happening, parsing the response
 and formatting it for the display.
 Example:
