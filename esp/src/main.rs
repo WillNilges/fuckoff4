@@ -21,7 +21,7 @@ use esp_idf_hal::prelude::*;
 use log::info;
 
 pub mod config;
-use crate::config::{HZ, PASSWORD, PROXY_ROUTE, SSID};
+use crate::config::{HZ, PASSWORD, PROXY_ROUTE, SSID, I2C_ADDR};
 
 use core::str;
 
@@ -49,7 +49,7 @@ fn main() -> anyhow::Result<()> {
     let config = I2cConfig::new().baudrate(100.kHz().into());
     let i2c_driver = I2cDriver::new(i2c, sda, scl, &config)?;
 
-    let mut lcd = HD44780::new_i2c(i2c_driver, 0x3F, &mut Ets).unwrap();
+    let mut lcd = HD44780::new_i2c(i2c_driver, I2C_ADDR, &mut Ets).unwrap();
 
     // Set up the display
     let _ = lcd.reset(&mut Ets);

@@ -2,3 +2,4 @@ pub const SSID: &str = "";
 pub const PASSWORD: &str = "";
 pub const PROXY_ROUTE: &str = "";
 pub const HZ: u32 = 10000;
+pub const I2C_ADDR: u8 = 0x27; // Address of the displays I'm using
