@@ -41,8 +41,9 @@ fn main() -> anyhow::Result<()> {
     let nvs = EspDefaultNvsPartition::take()?;
 
     println!("Booting Fuckoff4...");
+    println!("Waiting for display...");
 
-    let i2c = peripherals.i2c0;
+    let i2c = peripherals.i2c1;
     let sda = peripherals.pins.gpio13;
     let scl = peripherals.pins.gpio12;
 
@@ -73,7 +74,8 @@ fn main() -> anyhow::Result<()> {
     let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
     info!("Wifi DHCP info: {:?}", ip_info);
 
-    let _ = lcd.write_str("Setting up...", &mut Ets);
+    let _ = lcd.reset(&mut Ets);
+    let _ = lcd.clear(&mut Ets);
 
     loop {
         let proxy_response = query_proxy(PROXY_ROUTE);
@@ -88,33 +90,45 @@ fn main() -> anyhow::Result<()> {
         // FIXME: The display has a buffer of some sort that the driver doesnt
         // really account for. I think the max we can do is 42.
         // Maybe I will chunk it into 40 characters.
+        
+        #[derive(Clone)]
+        enum LCDRow {
+            First = 0x00,
+            Second = 0x40,
+            Third = 0x14,
+            Fourth = 0x54
+        }
 
         match proxy_response {
             Ok(d) => {
                 println!("Setting display: {}", d);
                 let display_text: Vec<&str> = d.split('\n').collect();
-                let time = format!("{: <20}", &display_text[1]);
 
-                if display_text[0].len() > 20 {
-                    // we subtract 16 instead of 20 because we want the scroll
-                    // to end with a bit of whitespace
-                    for i in (0..display_text[0].len() - 16).step_by(4) {
-                        let mut t: String = display_text[0].chars().skip(i).take(20).collect();
-                        t = format!("{: <20}", t);
-                        let _ = lcd.set_cursor_pos(0, &mut Ets);
-                        let _ = lcd.write_str(&t, &mut Ets);
-                        let _ = lcd.set_cursor_pos(40, &mut Ets);
-                        let _ = lcd.write_str(&time, &mut Ets);
-                        FreeRtos::delay_ms(1000);
+                let mut l_pos = vec![0, 0, 0, 0];
+                let row = vec![LCDRow::First, LCDRow::Second, LCDRow::Third, LCDRow::Fourth]; 
+                
+                loop {
+                    for (idx, line) in display_text.iter().enumerate() {
+                        // If the line length is >20, then step
+                        // the line
+                        if line.len() > 20 {
+                            let mut t: String = line.chars().skip(l_pos[idx]).take(20).collect();
+                            t = format!("{: <20}", t);
+                            let _ = lcd.set_cursor_pos(row[idx].clone() as u8, &mut Ets);
+                            let _ = lcd.write_str(&t, &mut Ets);
+                            
+                            if l_pos[idx] > line.len() - 16 {
+                                l_pos[idx] = 0;
+                            } else {
+                                l_pos[idx] += 4;
+                            }
+                        } else {
+                            let t = format!("{: <20}", &line);
+                            let _ = lcd.set_cursor_pos(row[idx].clone() as u8, &mut Ets);
+                            let _ = lcd.write_str(&t, &mut Ets);
+                        }
                     }
                     FreeRtos::delay_ms(1000);
-                } else {
-                    let text = format!("{: <20}", &display_text[0]);
-                    let _ = lcd.set_cursor_pos(0, &mut Ets);
-                    let _ = lcd.write_str(&text, &mut Ets);
-                    let _ = lcd.set_cursor_pos(40, &mut Ets);
-                    let _ = lcd.write_str(&time, &mut Ets);
-                    FreeRtos::delay_ms(HZ);
                 }
             }
             _ => {
@@ -181,3 +195,11 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()>
 
     Ok(())
 }
+
+// TODO: Make lcd object
+//fn step_line( display_text: String, t_pos: usize, s_pos: usize) {
+//    let mut t: String = display_text.chars().skip(t_pos).take(20).collect();
+//    t = format!("{: <20}", t);
+//    let _ = lcd.set_cursor_pos(t_pos, &mut Ets);
+//    let _ = lcd.write_str(&t, &mut Ets);
+//}

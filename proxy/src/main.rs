@@ -45,7 +45,17 @@ async fn reserve(
     }
 }
 
-#[get("/{name}")]
+#[get("/billboard")]
+async fn billboard() -> impl Responder {
+    "Hello\nworld how are you doing today I am doing just fine\non this\nlovely day this is wonderful isnt it?"
+}
+
+//#[post("/billboard")]
+//async fn set_billboard() -> impl Responder {
+//
+//}
+
+#[get("/hello/{name}")]
 async fn name(name: web::Path<String>) -> impl Responder {
     format!("FuckOff, {}!", &name)
 }
@@ -61,7 +71,7 @@ async fn main() -> std::io::Result<()> {
     println!("Check dotenv");
     dotenv().ok();
     println!("Run webserver");
-    HttpServer::new(|| App::new().service(screen).service(name).service(test))
+    HttpServer::new(|| App::new().service(screen).service(name).service(test).service(billboard))
         .bind(("0.0.0.0", 8080))?
         .run()
         .await
