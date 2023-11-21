@@ -1,6 +1,4 @@
-use esp_idf_hal::{delay::Ets, gpio::*, peripherals::Peripherals};
-
-use esp_idf_hal::delay::FreeRtos;
+use esp_idf_hal::{delay::{FreeRtos, Ets}, i2c::*, peripherals::Peripherals};
 
 use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780};
 
@@ -16,6 +14,9 @@ use esp_idf_svc::{
     nvs::EspDefaultNvsPartition,
     wifi::{BlockingWifi, EspWifi},
 };
+
+
+use esp_idf_hal::prelude::*;
 
 use log::info;
 
@@ -41,24 +42,14 @@ fn main() -> anyhow::Result<()> {
 
     println!("Booting Fuckoff4...");
 
-    let lcd_register = PinDriver::output(peripherals.pins.gpio13)?;
-    let lcd_enable = PinDriver::output(peripherals.pins.gpio12)?;
+    let i2c = peripherals.i2c0;
+    let sda = peripherals.pins.gpio13;
+    let scl = peripherals.pins.gpio12;
 
-    let lcd_d4 = PinDriver::output(peripherals.pins.gpio14)?;
-    let lcd_d5 = PinDriver::output(peripherals.pins.gpio27)?;
-    let lcd_d6 = PinDriver::output(peripherals.pins.gpio26)?;
-    let lcd_d7 = PinDriver::output(peripherals.pins.gpio25)?;
+    let config = I2cConfig::new().baudrate(100.kHz().into());
+    let i2c_driver = I2cDriver::new(i2c, sda, scl, &config)?;
 
-    let mut lcd = HD44780::new_4bit(
-        lcd_register,
-        lcd_enable,
-        lcd_d4,
-        lcd_d5,
-        lcd_d6,
-        lcd_d7,
-        &mut Ets,
-    )
-    .unwrap();
+    let mut lcd = HD44780::new_i2c(i2c_driver, 0x3F, &mut Ets).unwrap();
 
     // Set up the display
     let _ = lcd.reset(&mut Ets);
