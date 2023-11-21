@@ -72,6 +72,12 @@ Plug in your ESP32, then run:
 cargo run
 ```
 
+If you just want to get serial output, you can do:
+
+```
+cargo espflash monitor
+```
+
 ## The Proxy
 
 Fill out the .env file. Then,
