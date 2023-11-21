@@ -93,12 +93,14 @@ fn main() -> anyhow::Result<()> {
             Ok(d) => {
                 println!("Setting display: {}", d);
                 let display_text: Vec<&str> = d.split('\n').collect();
-                let time = format!("{: <16}", &display_text[1]);
+                let time = format!("{: <20}", &display_text[1]);
 
-                if display_text[0].len() > 16 {
-                    for i in (0..display_text[0].len() - 12).step_by(4) {
-                        let mut t: String = display_text[0].chars().skip(i).take(16).collect();
-                        t = format!("{: <16}", t);
+                if display_text[0].len() > 20 {
+                    // we subtract 16 instead of 20 because we want the scroll
+                    // to end with a bit of whitespace
+                    for i in (0..display_text[0].len() - 16).step_by(4) {
+                        let mut t: String = display_text[0].chars().skip(i).take(20).collect();
+                        t = format!("{: <20}", t);
                         let _ = lcd.set_cursor_pos(0, &mut Ets);
                         let _ = lcd.write_str(&t, &mut Ets);
                         let _ = lcd.set_cursor_pos(40, &mut Ets);
@@ -107,7 +109,7 @@ fn main() -> anyhow::Result<()> {
                     }
                     FreeRtos::delay_ms(1000);
                 } else {
-                    let text = format!("{: <16}", &display_text[0]);
+                    let text = format!("{: <20}", &display_text[0]);
                     let _ = lcd.set_cursor_pos(0, &mut Ets);
                     let _ = lcd.write_str(&text, &mut Ets);
                     let _ = lcd.set_cursor_pos(40, &mut Ets);
