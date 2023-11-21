@@ -46,6 +46,16 @@ In 00:15:23
 
 Install Rust and follow the guide available in [The Rust on ESP Book](https://esp-rs.github.io/book/installation/index.html).
 
+Specifically, [this page](https://esp-rs.github.io/book/installation/riscv-and-xtensa.html) is how you install for Xtensa platforms.
+
+In the root of this project, run:
+```
+cargo install espup
+espup install
+cargo install ldproxy
+cargo install espflash
+```
+
 These pages will probably be useful:
 - https://github.com/esp-rs/esp-idf-hal
     - The Hardware Abstraction Layer library for ESP. Implements `embedded-hal`.
