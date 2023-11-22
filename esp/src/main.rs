@@ -85,7 +85,7 @@ fn main() -> anyhow::Result<()> {
 
         match proxy_response {
             Ok(d) => {
-                // TODO: Get D into lcd.text
+                lcd.text = d.split('\n').map(String::from).collect();
                 lcd.run()?;
             }
             _ => {
