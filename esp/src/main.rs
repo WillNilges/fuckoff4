@@ -1,6 +1,13 @@
-use esp_idf_hal::{delay::{FreeRtos, Ets}, i2c::*, peripherals::Peripherals};
+use esp_idf_hal::{
+    delay::{Ets, FreeRtos},
+    i2c::*,
+    peripherals::Peripherals,
+};
 
-use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780, bus::{I2CBus, DataBus}};
+use hd44780_driver::{
+    bus::{DataBus, I2CBus},
+    Cursor, CursorBlink, Display, DisplayMode, HD44780,
+};
 
 use embedded_svc::{
     http::client::Client as HttpClient,
@@ -12,7 +19,8 @@ use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     http::client::EspHttpConnection,
     nvs::EspDefaultNvsPartition,
-    wifi::{AsyncWifi, EspWifi}, timer::EspTaskTimerService,
+    timer::EspTaskTimerService,
+    wifi::{AsyncWifi, EspWifi},
 };
 
 use embedded_hal::blocking::i2c;
@@ -22,10 +30,10 @@ use esp_idf_hal::prelude::*;
 use log::info;
 
 pub mod config;
-use crate::config::{HZ, PASSWORD, PROXY_ROUTE, SSID, I2C_ADDR};
+use crate::config::{HZ, I2C_ADDR, PASSWORD, PROXY_ROUTE, SSID};
 
 use core::str;
-use std::sync::{Mutex, Arc};
+use std::sync::{Arc, Mutex};
 
 use anyhow::bail;
 
@@ -44,7 +52,6 @@ fn main() -> anyhow::Result<()> {
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
     let timer_service = EspTaskTimerService::new()?;
-
 
     println!("Booting Fuckoff4...");
 
@@ -79,25 +86,23 @@ fn main() -> anyhow::Result<()> {
     let query_screen_updates = Arc::clone(&screen_updates);
 
     let lcd_thread = std::thread::Builder::new()
-        .spawn(move || -> anyhow::Result<()> {lcd.run(lcd_screen_updates)});
+        .spawn(move || -> anyhow::Result<()> { lcd.run(lcd_screen_updates) });
 
-    let proxy_thread = std::thread::Builder::new()
-        .spawn(move || -> anyhow::Result<()> {
-            loop {
-                let proxy_response = query_proxy(PROXY_ROUTE)?;
-                {
-                    let mut num = query_screen_updates.lock().unwrap();
-                    *num = proxy_response.split('\n').map(String::from).collect();
-                }
-
-                FreeRtos::delay_ms(HZ);
+    let proxy_thread = std::thread::Builder::new().spawn(move || -> anyhow::Result<()> {
+        loop {
+            let proxy_response = query_proxy(PROXY_ROUTE)?;
+            {
+                let mut num = query_screen_updates.lock().unwrap();
+                *num = proxy_response.split('\n').map(String::from).collect();
             }
-        });
+
+            FreeRtos::delay_ms(HZ);
+        }
+    });
 
     lcd_thread?.join().unwrap()?;
     proxy_thread?.join().unwrap()?;
 
-    
     println!("Joined threads");
 
     loop {
@@ -105,24 +110,23 @@ fn main() -> anyhow::Result<()> {
         FreeRtos::delay_ms(1000);
     }
 
-/*
-    loop {
-        let proxy_response = query_proxy(PROXY_ROUTE);
+    /*
+        loop {
+            let proxy_response = query_proxy(PROXY_ROUTE);
 
-        match proxy_response {
-            Ok(d) => {
-                lcd.text = d.split('\n').map(String::from).collect();
-                lcd.run()?;
-            }
-            _ => {
-                lcd.write("Error connecting to\nproxy server.");
+            match proxy_response {
+                Ok(d) => {
+                    lcd.text = d.split('\n').map(String::from).collect();
+                    lcd.run()?;
+                }
+                _ => {
+                    lcd.write("Error connecting to\nproxy server.");
+                }
             }
         }
-    }
-*/
+    */
     //Ok(())
 }
-
 
 async fn connect_wifi(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
     let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
@@ -184,7 +188,7 @@ fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
 
 struct FuckOffDisplay<B: DataBus> {
     pub lcd: HD44780<B>,
-    pub text: Vec<String>
+    pub text: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -192,10 +196,10 @@ enum LCDRow {
     First = 0x00,
     Second = 0x40,
     Third = 0x14,
-    Fourth = 0x54
+    Fourth = 0x54,
 }
 
-impl<'d, B: DataBus> FuckOffDisplay<B> {
+impl<B: DataBus> FuckOffDisplay<B> {
     // Gross, yet convenient methods
     pub fn wipe(&mut self) {
         self.lcd.reset(&mut Ets).unwrap();
@@ -203,15 +207,15 @@ impl<'d, B: DataBus> FuckOffDisplay<B> {
     }
 
     pub fn write(&mut self, string: &str) {
-        self.lcd.write_str(&string, &mut Ets).unwrap();
+        self.lcd.write_str(string, &mut Ets).unwrap();
     }
 
     pub fn run(&mut self, m: Arc<Mutex<Vec<String>>>) -> anyhow::Result<()> {
         // Create a position vector and a finished vector for each line
-        let mut l_pos = vec![0; 4];
-        let mut l_fin = vec![false; 4];
-        let row = vec![LCDRow::First, LCDRow::Second, LCDRow::Third, LCDRow::Fourth]; 
-        
+        let mut l_pos = [0; 4];
+        let mut l_fin = [false; 4];
+        let row = vec![LCDRow::First, LCDRow::Second, LCDRow::Third, LCDRow::Fourth];
+
         loop {
             for (idx, line) in self.text.iter().enumerate() {
                 // If the line length is >20, then step the line
@@ -220,7 +224,7 @@ impl<'d, B: DataBus> FuckOffDisplay<B> {
                     t = format!("{: <20}", t);
                     let _ = self.lcd.set_cursor_pos(row[idx].clone() as u8, &mut Ets);
                     let _ = self.lcd.write_str(&t, &mut Ets);
-                    
+
                     if l_pos[idx] > line.len() - 16 {
                         l_pos[idx] = 0;
                         l_fin[idx] = true;
@@ -245,8 +249,8 @@ impl<'d, B: DataBus> FuckOffDisplay<B> {
     }
 }
 
-use esp_idf_hal::peripheral::Peripheral;
 use esp_idf_hal::gpio::{InputPin, OutputPin};
+use esp_idf_hal::peripheral::Peripheral;
 
 impl<'d, I2C: i2c::Write> FuckOffDisplay<I2CBus<I2C>> {
     pub fn new_i2c<I: I2c>(
@@ -270,12 +274,14 @@ impl<'d, I2C: i2c::Write> FuckOffDisplay<I2CBus<I2C>> {
             &mut Ets,
         );
 
-        Ok(
-            FuckOffDisplay{
-                lcd,
-                text: vec!["".to_string(), "".to_string(), "".to_string(), "".to_string()]
-            }
-        )
-
+        Ok(FuckOffDisplay {
+            lcd,
+            text: vec![
+                "".to_string(),
+                "".to_string(),
+                "".to_string(),
+                "".to_string(),
+            ],
+        })
     }
 }
