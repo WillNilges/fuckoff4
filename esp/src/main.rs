@@ -1,6 +1,6 @@
 use esp_idf_hal::{delay::{FreeRtos, Ets}, i2c::*, peripherals::Peripherals};
 
-use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780};
+use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780, bus::{I2CBus, DataBus}};
 
 use embedded_svc::{
     http::client::Client as HttpClient,
@@ -91,14 +91,14 @@ fn main() -> anyhow::Result<()> {
         // really account for. I think the max we can do is 42.
         // Maybe I will chunk it into 40 characters.
         
-        #[derive(Clone)]
-        enum LCDRow {
-            First = 0x00,
-            Second = 0x40,
-            Third = 0x14,
-            Fourth = 0x54
-        }
-
+//        #[derive(Clone)]
+//        enum LCDRow {
+//            First = 0x00,
+//            Second = 0x40,
+//            Third = 0x14,
+//            Fourth = 0x54
+//        }
+//
         match proxy_response {
             Ok(d) => {
                 println!("Setting display: {}", d);
@@ -203,3 +203,94 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()>
 //    let _ = lcd.set_cursor_pos(t_pos, &mut Ets);
 //    let _ = lcd.write_str(&t, &mut Ets);
 //}
+
+use embedded_hal::blocking::i2c;
+
+//struct FuckoffDisplay<I2C: i2c::Write> {
+//    lcd: HD44780<I2CBus<I2C>>,
+//    text: Vec<String>
+//}
+
+struct FuckOffDisplay<B: DataBus> {
+    pub lcd: HD44780<B>,
+    pub text: Vec<String>
+}
+
+#[derive(Clone)]
+enum LCDRow {
+    First = 0x00,
+    Second = 0x40,
+    Third = 0x14,
+    Fourth = 0x54
+}
+
+impl<B: DataBus> FuckOffDisplay<B> {
+    pub fn wipe(&mut self) {
+        let _ = self.lcd.reset(&mut Ets);
+        let _ = self.lcd.clear(&mut Ets);
+    }
+
+    pub fn run(&mut self) -> anyhow::Result<()> {
+        let mut l_pos = vec![0, 0, 0, 0];
+        let row = vec![LCDRow::First, LCDRow::Second, LCDRow::Third, LCDRow::Fourth]; 
+        
+        loop {
+            for (idx, line) in self.text.iter().enumerate() {
+                // If the line length is >20, then step
+                // the line
+                if line.len() > 20 {
+                    let mut t: String = line.chars().skip(l_pos[idx]).take(20).collect();
+                    t = format!("{: <20}", t);
+                    let _ = self.lcd.set_cursor_pos(row[idx].clone() as u8, &mut Ets);
+                    let _ = self.lcd.write_str(&t, &mut Ets);
+                    
+                    if l_pos[idx] > line.len() - 16 {
+                        l_pos[idx] = 0;
+                    } else {
+                        l_pos[idx] += 4;
+                    }
+                } else {
+                    let t = format!("{: <20}", &line);
+                    let _ = self.lcd.set_cursor_pos(row[idx].clone() as u8, &mut Ets);
+                    let _ = self.lcd.write_str(&t, &mut Ets);
+                }
+            }
+            FreeRtos::delay_ms(1000);
+        }
+    }
+}
+
+impl<I2C: i2c::Write> FuckOffDisplay<I2CBus<I2C>> {
+    pub fn new_i2c() -> anyhow::Result<FuckOffDisplay<I2CBus<I2cDriver<'static>>>> {
+        
+        let peripherals = Peripherals::take()?;
+        let i2c = peripherals.i2c1;
+        let sda = peripherals.pins.gpio13;
+        let scl = peripherals.pins.gpio12;
+
+        let config = I2cConfig::new().baudrate(100.kHz().into());
+        let i2c_driver = I2cDriver::new(i2c, sda, scl, &config)?;
+
+        let mut lcd = HD44780::new_i2c(i2c_driver, I2C_ADDR, &mut Ets).unwrap();
+
+        // Set up the display
+        let _ = lcd.reset(&mut Ets);
+        let _ = lcd.clear(&mut Ets);
+        let _ = lcd.set_display_mode(
+            DisplayMode {
+                display: Display::On,
+                cursor_visibility: Cursor::Invisible,
+                cursor_blink: CursorBlink::Off,
+            },
+            &mut Ets,
+        );
+
+        Ok(
+            FuckOffDisplay{
+                lcd,
+                text: vec!["".to_string(), "".to_string(), "".to_string(), "".to_string()]
+            }
+        )
+
+    }
+}
