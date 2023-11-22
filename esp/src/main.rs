@@ -15,6 +15,7 @@ use esp_idf_svc::{
     wifi::{BlockingWifi, EspWifi},
 };
 
+use embedded_hal::blocking::i2c;
 
 use esp_idf_hal::prelude::*;
 
@@ -43,6 +44,8 @@ fn main() -> anyhow::Result<()> {
     println!("Booting Fuckoff4...");
     println!("Waiting for display...");
 
+    let mut lcd = FuckOffDisplay::<I2CBus<I2cDriver<'static>>>::new_i2c()?;
+/*
     let i2c = peripherals.i2c1;
     let sda = peripherals.pins.gpio13;
     let scl = peripherals.pins.gpio12;
@@ -63,8 +66,9 @@ fn main() -> anyhow::Result<()> {
         },
         &mut Ets,
     );
+    */
 
-    let _ = lcd.write_str("Connecting...", &mut Ets);
+    lcd.write("Connecting...");
 
     let mut wifi = BlockingWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
@@ -74,65 +78,18 @@ fn main() -> anyhow::Result<()> {
     let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
     info!("Wifi DHCP info: {:?}", ip_info);
 
-    let _ = lcd.reset(&mut Ets);
-    let _ = lcd.clear(&mut Ets);
+    lcd.wipe();
 
     loop {
         let proxy_response = query_proxy(PROXY_ROUTE);
-        //let _ = lcd.reset(&mut Ets);
-        //let _ = lcd.clear(&mut Ets);
 
-        // TODO: use shift_display to scroll the title, probably have to re-draw
-        // the time each frame. Need a timestamp for last refresh, and check
-        // that every frame, refreshing if the time since that hits like 30
-        // or whatever
-
-        // FIXME: The display has a buffer of some sort that the driver doesnt
-        // really account for. I think the max we can do is 42.
-        // Maybe I will chunk it into 40 characters.
-        
-//        #[derive(Clone)]
-//        enum LCDRow {
-//            First = 0x00,
-//            Second = 0x40,
-//            Third = 0x14,
-//            Fourth = 0x54
-//        }
-//
         match proxy_response {
             Ok(d) => {
-                println!("Setting display: {}", d);
-                let display_text: Vec<&str> = d.split('\n').collect();
-
-                let mut l_pos = vec![0, 0, 0, 0];
-                let row = vec![LCDRow::First, LCDRow::Second, LCDRow::Third, LCDRow::Fourth]; 
-                
-                loop {
-                    for (idx, line) in display_text.iter().enumerate() {
-                        // If the line length is >20, then step
-                        // the line
-                        if line.len() > 20 {
-                            let mut t: String = line.chars().skip(l_pos[idx]).take(20).collect();
-                            t = format!("{: <20}", t);
-                            let _ = lcd.set_cursor_pos(row[idx].clone() as u8, &mut Ets);
-                            let _ = lcd.write_str(&t, &mut Ets);
-                            
-                            if l_pos[idx] > line.len() - 16 {
-                                l_pos[idx] = 0;
-                            } else {
-                                l_pos[idx] += 4;
-                            }
-                        } else {
-                            let t = format!("{: <20}", &line);
-                            let _ = lcd.set_cursor_pos(row[idx].clone() as u8, &mut Ets);
-                            let _ = lcd.write_str(&t, &mut Ets);
-                        }
-                    }
-                    FreeRtos::delay_ms(1000);
-                }
+                // TODO: Get D into lcd.text
+                lcd.run()?;
             }
             _ => {
-                let _ = lcd.write_str("Error connecting to\nproxy server.", &mut Ets);
+                lcd.write("Error connecting to\nproxy server.");
             }
         }
     }
@@ -204,7 +161,6 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()>
 //    let _ = lcd.write_str(&t, &mut Ets);
 //}
 
-use embedded_hal::blocking::i2c;
 
 //struct FuckoffDisplay<I2C: i2c::Write> {
 //    lcd: HD44780<I2CBus<I2C>>,
@@ -225,9 +181,14 @@ enum LCDRow {
 }
 
 impl<B: DataBus> FuckOffDisplay<B> {
+    // Gross, yet convenient methods
     pub fn wipe(&mut self) {
-        let _ = self.lcd.reset(&mut Ets);
-        let _ = self.lcd.clear(&mut Ets);
+        self.lcd.reset(&mut Ets).unwrap();
+        self.lcd.clear(&mut Ets).unwrap();
+    }
+
+    pub fn write(&mut self, string: &str) {
+        self.lcd.write_str(&string, &mut Ets).unwrap();
     }
 
     pub fn run(&mut self) -> anyhow::Result<()> {
