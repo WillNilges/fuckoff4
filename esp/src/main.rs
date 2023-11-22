@@ -12,7 +12,7 @@ use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     http::client::EspHttpConnection,
     nvs::EspDefaultNvsPartition,
-    wifi::{BlockingWifi, EspWifi},
+    wifi::{AsyncWifi, EspWifi}, timer::EspTaskTimerService,
 };
 
 use embedded_hal::blocking::i2c;
@@ -28,6 +28,8 @@ use core::str;
 
 use anyhow::bail;
 
+use futures::executor::block_on;
+
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
@@ -40,23 +42,30 @@ fn main() -> anyhow::Result<()> {
 
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
+    let timer_service = EspTaskTimerService::new()?;
+
 
     println!("Booting Fuckoff4...");
-    println!("Waiting for display...");
 
+    // Set up display
+    println!("Waiting for display...");
     let i2c = peripherals.i2c1;
     let sda = peripherals.pins.gpio13;
     let scl = peripherals.pins.gpio12;
-
     let mut lcd = FuckOffDisplay::<I2CBus<I2cDriver<'static>>>::new_i2c(i2c, sda, scl)?;
 
+    // Connect to Wifi
     lcd.write("Connecting...");
-
-    let mut wifi = BlockingWifi::wrap(
+    let mut wifi = AsyncWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
         sys_loop,
+        timer_service,
     )?;
-    connect_wifi(&mut wifi)?;
+    block_on(connect_wifi(&mut wifi))?;
+
+    // TODO:
+    // Once we're connected, print info and start API query service, as well
+    // as display service
     let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
     info!("Wifi DHCP info: {:?}", ip_info);
 
@@ -75,6 +84,30 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
+}
+
+
+async fn connect_wifi(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
+    let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
+        ssid: SSID.into(),
+        bssid: None,
+        auth_method: AuthMethod::WPA2Personal,
+        password: PASSWORD.into(),
+        channel: None,
+    });
+
+    wifi.set_configuration(&wifi_configuration)?;
+
+    wifi.start().await?;
+    info!("Wifi started");
+
+    wifi.connect().await?;
+    info!("Wifi connected");
+
+    wifi.wait_netif_up().await?;
+    info!("Wifi netif up");
+
+    Ok(())
 }
 
 fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
@@ -110,29 +143,6 @@ fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
         }
         _ => bail!("Unexpected response code: {}", status),
     }
-}
-
-fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()> {
-    let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
-        ssid: SSID.into(),
-        bssid: None,
-        auth_method: AuthMethod::WPA2Personal,
-        password: PASSWORD.into(),
-        channel: None,
-    });
-
-    wifi.set_configuration(&wifi_configuration)?;
-
-    wifi.start()?;
-    info!("Wifi started");
-
-    wifi.connect()?;
-    info!("Wifi connected");
-
-    wifi.wait_netif_up()?;
-    info!("Wifi netif up");
-
-    Ok(())
 }
 
 struct FuckOffDisplay<B: DataBus> {
@@ -200,7 +210,6 @@ impl<'d, I2C: i2c::Write> FuckOffDisplay<I2CBus<I2C>> {
     ) -> anyhow::Result<FuckOffDisplay<I2CBus<I2cDriver<'d>>>> {
         let config = I2cConfig::new().baudrate(100.kHz().into());
         let i2c_driver = I2cDriver::new(i2c, sda, scl, &config)?;
-
         let mut lcd = HD44780::new_i2c(i2c_driver, I2C_ADDR, &mut Ets).unwrap();
 
         // Set up the display
