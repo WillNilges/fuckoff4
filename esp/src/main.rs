@@ -1,18 +1,18 @@
-use esp_idf_hal::{
-    delay::{Ets, FreeRtos},
-    i2c::*,
-    peripherals::Peripherals,
-};
-
-use hd44780_driver::{
-    bus::{DataBus, I2CBus},
-    Cursor, CursorBlink, Display, DisplayMode, HD44780,
-};
+use embedded_hal::blocking::i2c;
 
 use embedded_svc::{
     http::client::Client as HttpClient,
     io::Read,
     wifi::{AuthMethod, ClientConfiguration, Configuration},
+};
+
+use esp_idf_hal::{
+    delay::{Ets, FreeRtos},
+    gpio::{InputPin, OutputPin},
+    i2c::*,
+    peripheral::Peripheral,
+    peripherals::Peripherals,
+    prelude::*,
 };
 
 use esp_idf_svc::{
@@ -23,9 +23,10 @@ use esp_idf_svc::{
     wifi::{AsyncWifi, EspWifi},
 };
 
-use embedded_hal::blocking::i2c;
-
-use esp_idf_hal::prelude::*;
+use hd44780_driver::{
+    bus::{DataBus, I2CBus},
+    Cursor, CursorBlink, Display, DisplayMode, HD44780,
+};
 
 use log::info;
 
@@ -109,23 +110,6 @@ fn main() -> anyhow::Result<()> {
         // Don't let the idle task starve and trigger warnings from the watchdog.
         FreeRtos::delay_ms(1000);
     }
-
-    /*
-        loop {
-            let proxy_response = query_proxy(PROXY_ROUTE);
-
-            match proxy_response {
-                Ok(d) => {
-                    lcd.text = d.split('\n').map(String::from).collect();
-                    lcd.run()?;
-                }
-                _ => {
-                    lcd.write("Error connecting to\nproxy server.");
-                }
-            }
-        }
-    */
-    //Ok(())
 }
 
 async fn connect_wifi(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
@@ -249,9 +233,6 @@ impl<B: DataBus> FuckOffDisplay<B> {
     }
 }
 
-use esp_idf_hal::gpio::{InputPin, OutputPin};
-use esp_idf_hal::peripheral::Peripheral;
-
 impl<'d, I2C: i2c::Write> FuckOffDisplay<I2CBus<I2C>> {
     pub fn new_i2c<I: I2c>(
         i2c: impl Peripheral<P = I> + 'd,
@@ -276,12 +257,7 @@ impl<'d, I2C: i2c::Write> FuckOffDisplay<I2CBus<I2C>> {
 
         Ok(FuckOffDisplay {
             lcd,
-            text: vec![
-                "".to_string(),
-                "".to_string(),
-                "".to_string(),
-                "".to_string(),
-            ],
+            text: vec![String::new(); 4],
         })
     }
 }
