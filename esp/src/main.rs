@@ -1,4 +1,4 @@
-use esp_idf_hal::{delay::{FreeRtos, Ets}, i2c::*, peripherals::Peripherals, ledc::LedcDriver};
+use esp_idf_hal::{delay::{FreeRtos, Ets}, i2c::*, peripherals::Peripherals};
 
 use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780, bus::{I2CBus, DataBus}};
 
@@ -25,6 +25,7 @@ pub mod config;
 use crate::config::{HZ, PASSWORD, PROXY_ROUTE, SSID, I2C_ADDR};
 
 use core::str;
+use std::sync::{Mutex, Arc};
 
 use anyhow::bail;
 
@@ -52,7 +53,7 @@ fn main() -> anyhow::Result<()> {
     let i2c = peripherals.i2c1;
     let sda = peripherals.pins.gpio13;
     let scl = peripherals.pins.gpio12;
-    let mut lcd = FuckOffDisplay::<I2CBus<I2cDriver<'static>>>::new_i2c(i2c, sda, scl)?;
+    let mut lcd = FuckOffDisplay::<I2CBus<I2cDriver>>::new_i2c(i2c, sda, scl)?;
 
     // Connect to Wifi
     lcd.write("Connecting...");
@@ -71,6 +72,40 @@ fn main() -> anyhow::Result<()> {
 
     lcd.wipe();
 
+    let screen_updates = Arc::new(Mutex::new(vec![String::new(); 4]));
+
+    let lcd_screen_updates = Arc::clone(&screen_updates);
+
+    let query_screen_updates = Arc::clone(&screen_updates);
+
+    let lcd_thread = std::thread::Builder::new()
+        .spawn(move || -> anyhow::Result<()> {lcd.run(lcd_screen_updates)});
+
+    let proxy_thread = std::thread::Builder::new()
+        .spawn(move || -> anyhow::Result<()> {
+            loop {
+                let proxy_response = query_proxy(PROXY_ROUTE)?;
+                {
+                    let mut num = query_screen_updates.lock().unwrap();
+                    *num = proxy_response.split('\n').map(String::from).collect();
+                }
+
+                FreeRtos::delay_ms(HZ);
+            }
+        });
+
+    lcd_thread?.join().unwrap()?;
+    proxy_thread?.join().unwrap()?;
+
+    
+    println!("Joined threads");
+
+    loop {
+        // Don't let the idle task starve and trigger warnings from the watchdog.
+        FreeRtos::delay_ms(1000);
+    }
+
+/*
     loop {
         let proxy_response = query_proxy(PROXY_ROUTE);
 
@@ -84,6 +119,8 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
+*/
+    //Ok(())
 }
 
 
@@ -169,14 +206,15 @@ impl<'d, B: DataBus> FuckOffDisplay<B> {
         self.lcd.write_str(&string, &mut Ets).unwrap();
     }
 
-    pub fn run(&mut self) -> anyhow::Result<()> {
-        let mut l_pos = vec![0, 0, 0, 0];
+    pub fn run(&mut self, m: Arc<Mutex<Vec<String>>>) -> anyhow::Result<()> {
+        // Create a position vector and a finished vector for each line
+        let mut l_pos = vec![0; 4];
+        let mut l_fin = vec![false; 4];
         let row = vec![LCDRow::First, LCDRow::Second, LCDRow::Third, LCDRow::Fourth]; 
         
         loop {
             for (idx, line) in self.text.iter().enumerate() {
-                // If the line length is >20, then step
-                // the line
+                // If the line length is >20, then step the line
                 if line.len() > 20 {
                     let mut t: String = line.chars().skip(l_pos[idx]).take(20).collect();
                     t = format!("{: <20}", t);
@@ -185,6 +223,7 @@ impl<'d, B: DataBus> FuckOffDisplay<B> {
                     
                     if l_pos[idx] > line.len() - 16 {
                         l_pos[idx] = 0;
+                        l_fin[idx] = true;
                     } else {
                         l_pos[idx] += 4;
                     }
@@ -192,9 +231,16 @@ impl<'d, B: DataBus> FuckOffDisplay<B> {
                     let t = format!("{: <20}", &line);
                     let _ = self.lcd.set_cursor_pos(row[idx].clone() as u8, &mut Ets);
                     let _ = self.lcd.write_str(&t, &mut Ets);
+                    l_fin[idx] = true;
                 }
             }
             FreeRtos::delay_ms(1000);
+            if l_fin.iter().all(|&x| x) {
+                {
+                    let num = m.lock().unwrap();
+                    self.text = (*num.clone()).to_vec();
+                }
+            }
         }
     }
 }
