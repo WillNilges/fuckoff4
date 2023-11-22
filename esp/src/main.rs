@@ -1,4 +1,4 @@
-use esp_idf_hal::{delay::{FreeRtos, Ets}, i2c::*, peripherals::Peripherals};
+use esp_idf_hal::{delay::{FreeRtos, Ets}, i2c::*, peripherals::Peripherals, ledc::LedcDriver};
 
 use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780, bus::{I2CBus, DataBus}};
 
@@ -44,29 +44,11 @@ fn main() -> anyhow::Result<()> {
     println!("Booting Fuckoff4...");
     println!("Waiting for display...");
 
-    let mut lcd = FuckOffDisplay::<I2CBus<I2cDriver<'static>>>::new_i2c()?;
-/*
     let i2c = peripherals.i2c1;
     let sda = peripherals.pins.gpio13;
     let scl = peripherals.pins.gpio12;
 
-    let config = I2cConfig::new().baudrate(100.kHz().into());
-    let i2c_driver = I2cDriver::new(i2c, sda, scl, &config)?;
-
-    let mut lcd = HD44780::new_i2c(i2c_driver, I2C_ADDR, &mut Ets).unwrap();
-
-    // Set up the display
-    let _ = lcd.reset(&mut Ets);
-    let _ = lcd.clear(&mut Ets);
-    let _ = lcd.set_display_mode(
-        DisplayMode {
-            display: Display::On,
-            cursor_visibility: Cursor::Invisible,
-            cursor_blink: CursorBlink::Off,
-        },
-        &mut Ets,
-    );
-    */
+    let mut lcd = FuckOffDisplay::<I2CBus<I2cDriver<'static>>>::new_i2c(i2c, sda, scl)?;
 
     lcd.write("Connecting...");
 
@@ -153,20 +135,6 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()>
     Ok(())
 }
 
-// TODO: Make lcd object
-//fn step_line( display_text: String, t_pos: usize, s_pos: usize) {
-//    let mut t: String = display_text.chars().skip(t_pos).take(20).collect();
-//    t = format!("{: <20}", t);
-//    let _ = lcd.set_cursor_pos(t_pos, &mut Ets);
-//    let _ = lcd.write_str(&t, &mut Ets);
-//}
-
-
-//struct FuckoffDisplay<I2C: i2c::Write> {
-//    lcd: HD44780<I2CBus<I2C>>,
-//    text: Vec<String>
-//}
-
 struct FuckOffDisplay<B: DataBus> {
     pub lcd: HD44780<B>,
     pub text: Vec<String>
@@ -180,7 +148,7 @@ enum LCDRow {
     Fourth = 0x54
 }
 
-impl<B: DataBus> FuckOffDisplay<B> {
+impl<'d, B: DataBus> FuckOffDisplay<B> {
     // Gross, yet convenient methods
     pub fn wipe(&mut self) {
         self.lcd.reset(&mut Ets).unwrap();
@@ -221,14 +189,15 @@ impl<B: DataBus> FuckOffDisplay<B> {
     }
 }
 
-impl<I2C: i2c::Write> FuckOffDisplay<I2CBus<I2C>> {
-    pub fn new_i2c() -> anyhow::Result<FuckOffDisplay<I2CBus<I2cDriver<'static>>>> {
-        
-        let peripherals = Peripherals::take()?;
-        let i2c = peripherals.i2c1;
-        let sda = peripherals.pins.gpio13;
-        let scl = peripherals.pins.gpio12;
+use esp_idf_hal::peripheral::Peripheral;
+use esp_idf_hal::gpio::{InputPin, OutputPin};
 
+impl<'d, I2C: i2c::Write> FuckOffDisplay<I2CBus<I2C>> {
+    pub fn new_i2c<I: I2c>(
+        i2c: impl Peripheral<P = I> + 'd,
+        sda: impl Peripheral<P = impl InputPin + OutputPin> + 'd,
+        scl: impl Peripheral<P = impl InputPin + OutputPin> + 'd,
+    ) -> anyhow::Result<FuckOffDisplay<I2CBus<I2cDriver<'d>>>> {
         let config = I2cConfig::new().baudrate(100.kHz().into());
         let i2c_driver = I2cDriver::new(i2c, sda, scl, &config)?;
 
