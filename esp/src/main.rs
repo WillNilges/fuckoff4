@@ -1,4 +1,4 @@
-use esp_idf_hal::{delay::{FreeRtos, Ets}, i2c::*, peripherals::Peripherals, ledc::LedcDriver};
+use esp_idf_hal::{delay::{FreeRtos, Ets}, i2c::*, peripherals::Peripherals};
 
 use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780, bus::{I2CBus, DataBus}};
 
@@ -71,19 +71,32 @@ fn main() -> anyhow::Result<()> {
 
     lcd.wipe();
 
-    loop {
-        let proxy_response = query_proxy(PROXY_ROUTE);
 
-        match proxy_response {
-            Ok(d) => {
-                lcd.text = d.split('\n').map(String::from).collect();
-                lcd.run()?;
+    let lcd_thread = std::thread::Builder::new()
+        .stack_size(7000)
+        .spawn(move || lcd.run())?;
+
+    let proxy_thread = std::thread::Builder::new()
+        .stack_size(7000)
+        .spawn(|| {
+            loop {
+                let proxy_response = query_proxy(PROXY_ROUTE);
+
+                match proxy_response {
+                    Ok(d) => {
+                        let proxy_text: Vec<String> = d.split('\n').map(String::from).collect();
+                    }
+                    _ => {
+                        //lcd.write("Error connecting to\nproxy server.");
+                        println!("Error connecting to proxy server.");
+                    }
+                }
             }
-            _ => {
-                lcd.write("Error connecting to\nproxy server.");
-            }
-        }
-    }
+        })?;
+
+    lcd_thread.join().unwrap()?;
+    proxy_thread.join().unwrap();
+    Ok(())
 }
 
 
