@@ -26,7 +26,6 @@ embassy = ["esp-idf-svc/embassy-sync", "esp-idf-svc/critical-section", "esp-idf-
 [dependencies]
 log = { version = "0.4", default-features = false }
 esp-idf-svc = { version = "0.47.3", default-features = false }
-lcd-lcm1602-i2c = "0.1.0"
 esp-idf-hal = "0.42.5"
 anyhow = "1.0.75"
 hd44780-driver = "0.4.0"

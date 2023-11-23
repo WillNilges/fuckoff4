@@ -70,7 +70,18 @@ fn main() -> anyhow::Result<()> {
         sys_loop,
         timer_service,
     )?;
-    block_on(connect_wifi(&mut wifi))?;
+
+    loop {
+        match block_on(connect_wifi(&mut wifi)) {
+            Ok(()) => break,
+            Err(e) => {
+                lcd.write(format!("Can't connect.\n{}", e).as_str());
+                // Flash the screen three times to indicate that we can't
+                // Connect. Side effect of delaying 3 seconds.
+                lcd.flash(3, 1000)
+            },
+        };
+    }
 
     // TODO:
     // Once we're connected, print info and start API query service, as well
@@ -81,14 +92,21 @@ fn main() -> anyhow::Result<()> {
     lcd.wipe();
 
     let screen_updates = Arc::new(Mutex::new(vec![String::new(); 4]));
-
     let lcd_screen_updates = Arc::clone(&screen_updates);
-
     let query_screen_updates = Arc::clone(&screen_updates);
 
     let lcd_thread = std::thread::Builder::new()
         .spawn(move || -> anyhow::Result<()> { lcd.run(lcd_screen_updates) });
 
+    /*
+    * I suppose this is the bonafide main thread.
+    * Nominally, it will query the proxy for a new string every HZ
+    * milliseconds.
+    *
+    * If it fails to do so because of an issue with the server (that is, it can
+    * connect to the internet, but the server doesn't respond), it will update
+    * the display and set it to flash, then try to re-connect.
+    */
     let proxy_thread = std::thread::Builder::new().spawn(move || -> anyhow::Result<()> {
         loop {
             let proxy_response = query_proxy(PROXY_ROUTE)?;
@@ -97,7 +115,9 @@ fn main() -> anyhow::Result<()> {
                 *num = proxy_response.split('\n').map(String::from).collect();
             }
 
-            FreeRtos::delay_ms(HZ);
+            for _ in 0..HZ/100 {
+                FreeRtos::delay_ms(100);
+            }
         }
     });
 
@@ -192,6 +212,28 @@ impl<B: DataBus> FuckOffDisplay<B> {
 
     pub fn write(&mut self, string: &str) {
         self.lcd.write_str(string, &mut Ets).unwrap();
+    }
+
+    pub fn flash(&mut self, count: u32, hz: u32) {
+        for _ in 0..count {
+            let _ = self.lcd.set_display_mode(
+                DisplayMode {
+                    display: Display::Off,
+                    cursor_visibility: Cursor::Invisible,
+                    cursor_blink: CursorBlink::Off,
+                },
+                &mut Ets,
+            );
+            FreeRtos::delay_us(hz);
+            let _ = self.lcd.set_display_mode(
+                DisplayMode {
+                    display: Display::Off,
+                    cursor_visibility: Cursor::Invisible,
+                    cursor_blink: CursorBlink::Off,
+                },
+                &mut Ets,
+            );
+        }
     }
 
     pub fn run(&mut self, m: Arc<Mutex<Vec<String>>>) -> anyhow::Result<()> {
