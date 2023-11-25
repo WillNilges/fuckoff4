@@ -47,6 +47,7 @@ fn main() -> anyhow::Result<()> {
 
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
+    println!("Booting Sidegrade...");
 
     let peripherals = Peripherals::take()?;
 
@@ -54,17 +55,16 @@ fn main() -> anyhow::Result<()> {
     let nvs = EspDefaultNvsPartition::take()?;
     let timer_service = EspTaskTimerService::new()?;
 
-    println!("Booting Fuckoff4...");
-
     // Set up display
     println!("Waiting for display...");
     let i2c = peripherals.i2c1;
     let sda = peripherals.pins.gpio13;
     let scl = peripherals.pins.gpio12;
-    let mut lcd = FuckOffDisplay::<I2CBus<I2cDriver>>::new_i2c(i2c, sda, scl)?;
+    let mut lcd = SidegradeDisplay::<I2CBus<I2cDriver>>::new_i2c(i2c, sda, scl)?;
 
     // Connect to Wifi
     lcd.write("Connecting...");
+    println!("Setting up Wifi...");
     let mut wifi = AsyncWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
         sys_loop,
@@ -72,9 +72,11 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     loop {
+        println!("Connecting WiFi...");
         match block_on(connect_wifi(&mut wifi)) {
             Ok(()) => break,
             Err(e) => {
+                println!("Connection failed. Trying again.");
                 lcd.write(format!("Can't connect.\n{}", e).as_str());
                 // Flash the screen three times to indicate that we can't
                 // Connect. Side effect of delaying 3 seconds.
@@ -107,32 +109,42 @@ fn main() -> anyhow::Result<()> {
     * connect to the internet, but the server doesn't respond), it will update
     * the display and set it to flash, then try to re-connect.
     */
-    let proxy_thread = std::thread::Builder::new().spawn(move || -> anyhow::Result<()> {
-        loop {
-            let proxy_response = query_proxy(PROXY_ROUTE)?;
-            {
-                let mut num = query_screen_updates.lock().unwrap();
-                *num = proxy_response.split('\n').map(String::from).collect();
-            }
+    //let proxy_thread = std::thread::Builder::new().spawn(move || -> anyhow::Result<()> {
+    //    loop {
+    //        let proxy_response = query_proxy(PROXY_ROUTE)?;
+    //        {
+    //            let mut num = query_screen_updates.lock().unwrap();
+    //            *num = proxy_response.split('\n').map(String::from).collect();
+    //        }
+    //        FreeRtos::delay_ms(HZ);
+    //    }
+    //});
 
-            for _ in 0..HZ/100 {
-                FreeRtos::delay_ms(100);
-            }
-        }
-    });
-
-    lcd_thread?.join().unwrap()?;
-    proxy_thread?.join().unwrap()?;
+    //lcd_thread?.join().unwrap()?;
+    //proxy_thread?.join().unwrap()?;
 
     println!("Joined threads");
 
     loop {
-        // Don't let the idle task starve and trigger warnings from the watchdog.
-        FreeRtos::delay_ms(1000);
+        let proxy_response = query_proxy(PROXY_ROUTE)?;
+        {
+            let mut num = query_screen_updates.lock().unwrap();
+            *num = proxy_response.split('\n').map(String::from).collect();
+        }
+        //FreeRtos::delay_ms(HZ);
+        for _ in 0..100 {
+            FreeRtos::delay_ms(100);
+        }
     }
+
+    //loop {
+    //    // Don't let the idle task starve and trigger warnings from the watchdog.
+    //    FreeRtos::delay_ms(100);
+    //}
 }
 
 async fn connect_wifi(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
+    println!("Wifi Configuration");
     let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
         ssid: SSID.into(),
         bssid: None,
@@ -141,14 +153,18 @@ async fn connect_wifi(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<
         channel: None,
     });
 
+    println!("Set configuration");
     wifi.set_configuration(&wifi_configuration)?;
 
+    println!("Start Wifi");
     wifi.start().await?;
     info!("Wifi started");
 
+    println!("Connect WiFi");
     wifi.connect().await?;
     info!("Wifi connected");
 
+    println!("WiFi up");
     wifi.wait_netif_up().await?;
     info!("Wifi netif up");
 
@@ -190,7 +206,7 @@ fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
     }
 }
 
-struct FuckOffDisplay<B: DataBus> {
+struct SidegradeDisplay<B: DataBus> {
     pub lcd: HD44780<B>,
     pub text: Vec<String>,
 }
@@ -203,7 +219,7 @@ enum LCDRow {
     Fourth = 0x54,
 }
 
-impl<B: DataBus> FuckOffDisplay<B> {
+impl<B: DataBus> SidegradeDisplay<B> {
     // Gross, yet convenient methods
     pub fn wipe(&mut self) {
         self.lcd.reset(&mut Ets).unwrap();
@@ -275,12 +291,12 @@ impl<B: DataBus> FuckOffDisplay<B> {
     }
 }
 
-impl<'d, I2C: i2c::Write> FuckOffDisplay<I2CBus<I2C>> {
+impl<'d, I2C: i2c::Write> SidegradeDisplay<I2CBus<I2C>> {
     pub fn new_i2c<I: I2c>(
         i2c: impl Peripheral<P = I> + 'd,
         sda: impl Peripheral<P = impl InputPin + OutputPin> + 'd,
         scl: impl Peripheral<P = impl InputPin + OutputPin> + 'd,
-    ) -> anyhow::Result<FuckOffDisplay<I2CBus<I2cDriver<'d>>>> {
+    ) -> anyhow::Result<SidegradeDisplay<I2CBus<I2cDriver<'d>>>> {
         let config = I2cConfig::new().baudrate(100.kHz().into());
         let i2c_driver = I2cDriver::new(i2c, sda, scl, &config)?;
         let mut lcd = HD44780::new_i2c(i2c_driver, I2C_ADDR, &mut Ets).unwrap();
@@ -297,7 +313,7 @@ impl<'d, I2C: i2c::Write> FuckOffDisplay<I2CBus<I2C>> {
             &mut Ets,
         );
 
-        Ok(FuckOffDisplay {
+        Ok(SidegradeDisplay {
             lcd,
             text: vec![String::new(); 4],
         })
