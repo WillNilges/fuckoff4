@@ -122,7 +122,7 @@ impl CalendarEvents {
         Ok(body)
     }
 
-    pub fn get_next_at_location(&self, location: String) -> Option<Event> {
+    pub fn get_next_at_location(&self, location: &str) -> Option<Event> {
         for e in &self.items {
             if let Some(ref l) = e.location {
                 if l.contains(&location) {
@@ -171,6 +171,48 @@ mod tests {
 
 
     #[test]
+    fn test_get_next_at_location() {
+        let events = CalendarEvents {
+            kind: "".to_string(),
+            items: vec![
+                Event {
+                    summary: "Test".to_string(),
+                    description: None,
+                    location: Some("Lounge".to_string()),
+                    start: EventTimeInfo {
+                        date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap()),
+                        date: None,
+                        time_zone: None,
+                    } ,
+                    end: EventTimeInfo {
+                        date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 1, 0, 0).unwrap()),
+                        date: None,
+                        time_zone: None,
+                    }
+                },
+                Event {
+                    summary: "Test Number 2".to_string(),
+                    description: None,
+                    location: Some("Lounge".to_string()),
+                    start: EventTimeInfo {
+                        date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 2, 30, 0).unwrap()),
+                        date: None,
+                        time_zone: None,
+                    } ,
+                    end: EventTimeInfo {
+                        date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 4, 0, 0).unwrap()),
+                        date: None,
+                        time_zone: None,
+                    }
+                }
+            ],
+        };
+        
+        // The next event should be "Test"
+        assert_eq!(events.get_next_at_location("Lounge").unwrap().summary, "Test");
+    }
+
+    #[test]
     fn test_is_free_at_location() {
         let events = CalendarEvents {
             kind: "".to_string(),
@@ -208,8 +250,14 @@ mod tests {
             ],
         };
 
-        let query_start = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
-        let query_end = Utc.with_ymd_and_hms(2020, 1, 1, 1, 30, 0).unwrap();
+        // The room should be taken
+        let mut query_start = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let mut query_end = Utc.with_ymd_and_hms(2020, 1, 1, 1, 30, 0).unwrap();
         assert!(!events.is_free_at_location("Lounge", query_start, query_end));
+
+        // The room should be free
+        query_start = Utc.with_ymd_and_hms(2020, 2, 1, 0, 0, 0).unwrap();
+        query_end = Utc.with_ymd_and_hms(2020, 2, 1, 1, 30, 0).unwrap();
+        assert!(events.is_free_at_location("Lounge", query_start, query_end));
     }
 }

@@ -11,7 +11,7 @@ async fn screen(location: web::Path<String>) -> impl Responder {
     println!("Get calendar events for {}", location);
     let upcoming_events = CalendarEvents::new().await;
     match upcoming_events {
-        Ok(u) => match u.get_next_at_location(location.to_string().to_case(Case::Title)) {
+        Ok(u) => match u.get_next_at_location(&location.to_case(Case::Title)) {
             Some(e) => e.format_1602(),
             None => "No upcoming events.".to_string(),
         },
