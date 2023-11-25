@@ -36,7 +36,7 @@ async fn reserve(
     let upcoming_events = CalendarEvents::new().await;
     match upcoming_events {
         Ok(u) => {
-            if u.is_free_at_location(location.to_string(), proposed_start, proposed_end) {
+            if u.is_free_at_location(&location, proposed_start, proposed_end) {
                 return "Is free!";
             }
             "Reserved at that time."

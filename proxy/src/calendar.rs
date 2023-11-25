@@ -133,9 +133,11 @@ impl CalendarEvents {
         None
     }
 
+    // Check if the provided range of DateTimes overlap with anything
+    // we already know about.
     pub fn is_free_at_location(
         &self,
-        location: String,
+        location: &str,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> bool {
@@ -161,16 +163,16 @@ impl CalendarEvents {
     }
 }
 
-/*
+
 #[cfg(test)]
 mod tests {
     use crate::calendar::{CalendarEvents, Event, EventTimeInfo};
-    use chrono::NaiveDate;
+    use chrono::prelude::*;
 
 
     #[test]
     fn test_is_free_at_location() {
-        let test_cal_events = CalendarEvents {
+        let events = CalendarEvents {
             kind: "".to_string(),
             items: vec![
                 Event {
@@ -178,16 +180,36 @@ mod tests {
                     description: None,
                     location: Some("Lounge".to_string()),
                     start: EventTimeInfo {
-                        date_time: NaiveDate::from_ymd_opt(2016, 7, 8).unwrap().and_hms_opt(9, 10, 11).unwrap(),//Some("xyz".to_string()),
+                        date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap()),
+                        date: None,
                         time_zone: None,
                     } ,
                     end: EventTimeInfo {
-                        date_time: NaiveDate::from_ymd_opt(2016, 7, 8).unwrap().and_hms_opt(9, 10, 11).unwrap(), // NaiveDateTime{ date: "2023-11-20", time: 12:40}, //Some("zyx".to_string()),
+                        date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 1, 0, 0).unwrap()),
+                        date: None,
+                        time_zone: None,
+                    }
+                },
+                Event {
+                    summary: "Test Number 2".to_string(),
+                    description: None,
+                    location: Some("Lounge".to_string()),
+                    start: EventTimeInfo {
+                        date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 2, 30, 0).unwrap()),
+                        date: None,
+                        time_zone: None,
+                    } ,
+                    end: EventTimeInfo {
+                        date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 4, 0, 0).unwrap()),
+                        date: None,
                         time_zone: None,
                     }
                 }
             ],
         };
-        assert!(true);
+
+        let query_start = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let query_end = Utc.with_ymd_and_hms(2020, 1, 1, 1, 30, 0).unwrap();
+        assert!(!events.is_free_at_location("Lounge", query_start, query_end));
     }
-}*/
+}
