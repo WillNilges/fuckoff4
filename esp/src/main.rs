@@ -68,14 +68,14 @@ fn main() -> anyhow::Result<()> {
 
     loop {
         info!("Connecting WiFi...");
+        lcd.wipe();
+        lcd.write("Connecting...");
         match block_on(connect_wifi(&mut wifi)) {
             Ok(()) => break,
             Err(e) => {
                 warn!("Connection failed. Trying again.");
                 lcd.write(format!("Can't connect.\n{}", e).as_str());
-                // Flash the screen three times to indicate that we can't
-                // Connect. Side effect of delaying 3 seconds.
-                lcd.flash(3, 1000)
+                FreeRtos::delay_ms(3000);
             },
         };
     }
@@ -86,17 +86,12 @@ fn main() -> anyhow::Result<()> {
     info!("Wifi DHCP info: {:?}", ip_info);
 
     lcd.wipe();
+    lcd.write("Query Proxy...");
 
     // Shared data so that the proxy thread can update the display thread
     let screen_updates = Arc::new(Mutex::new(vec![String::new(); 4]));
     let lcd_screen_updates = Arc::clone(&screen_updates);
     let query_screen_updates = Arc::clone(&screen_updates);
-
-    // The display thread. Basically just a billboard
-    let lcd_thread = std::thread::Builder::new()
-        .name("display".to_string())
-        .stack_size(7000)
-        .spawn(move || -> anyhow::Result<()> { lcd.run(lcd_screen_updates) });
 
     /*
     * I suppose this is the bonafide main thread.
@@ -111,24 +106,32 @@ fn main() -> anyhow::Result<()> {
         .name("proxy".to_string())
         .stack_size(7000)
         .spawn(move || -> anyhow::Result<()> {
-
         loop {
             // GET
             let proxy_response = query_proxy();
-
-            let mut num = query_screen_updates.lock().unwrap();
+            let mut screen = query_screen_updates.lock().unwrap();
             match proxy_response {
                 Ok(r) => {
-                    *num = r.split('\n').map(String::from).collect();
+                    info!("Proxy query successful.");
+                    *screen = r.split('\n').map(String::from).collect();
                 },
                 Err(e) => {
                     error!("Proxy Thread Error: {}", e);
-                    *num = vec!["Could not fetch updates.".to_string(), "".to_string(), "".to_string(), "".to_string()];
+                    *screen = vec!["Could not fetch updates.".to_string(), "".to_string(), "".to_string(), "".to_string()];
                 },
             }
             FreeRtos::delay_ms(HZ);
         }
     });
+
+    // The display thread. Basically just a billboard
+    // Launched after the first attempt at querying the proxy so that the display
+    // is never blank.
+    let lcd_thread = std::thread::Builder::new()
+        .name("display".to_string())
+        .stack_size(7000)
+        .spawn(move || -> anyhow::Result<()> { lcd.run(lcd_screen_updates) });
+
 
     lcd_thread?.join().unwrap()?;
     proxy_thread?.join().unwrap()?;
