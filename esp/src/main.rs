@@ -1,8 +1,8 @@
 use anyhow::bail;
 use embedded_svc::{
-    http::client::Client as HttpClient,
-    io::Read,
+    http::{client::Client as HttpClient, Method},
     wifi::{AuthMethod, ClientConfiguration, Configuration},
+    utils::io,
 };
 
 use esp_idf_hal::{
@@ -23,6 +23,10 @@ use hd44780_driver::bus::I2CBus;
 
 use log::{info, warn, error};
 
+use std::sync::{Arc, Mutex};
+
+use futures::executor::block_on;
+
 pub mod config;
 pub mod display;
 
@@ -30,11 +34,6 @@ use crate::{
     config::{HZ, PASSWORD, PROXY_ROUTE, SSID},
     display::*,
 };
-
-use core::str;
-use std::{sync::{Arc, Mutex}, net::ToSocketAddrs};
-
-use futures::executor::block_on;
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -81,7 +80,6 @@ fn main() -> anyhow::Result<()> {
         };
     }
 
-    // TODO:
     // Once we're connected, print info and start API query service, as well
     // as display service
     let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
@@ -89,11 +87,14 @@ fn main() -> anyhow::Result<()> {
 
     lcd.wipe();
 
+    // Shared data so that the proxy thread can update the display thread
     let screen_updates = Arc::new(Mutex::new(vec![String::new(); 4]));
     let lcd_screen_updates = Arc::clone(&screen_updates);
     let query_screen_updates = Arc::clone(&screen_updates);
 
+    // The display thread. Basically just a billboard
     let lcd_thread = std::thread::Builder::new()
+        .name("display".to_string())
         .stack_size(7000)
         .spawn(move || -> anyhow::Result<()> { lcd.run(lcd_screen_updates) });
 
@@ -106,15 +107,14 @@ fn main() -> anyhow::Result<()> {
     * connect to the internet, but the server doesn't respond), it will update
     * the display and set it to flash, then try to re-connect.
     */
-    let proxy_thread = std::thread::Builder::new().stack_size(7000).spawn(move || -> anyhow::Result<()> {
-        loop {
-            //let proxy_response = query_proxy(PROXY_ROUTE);
-                    
-            // Create HTTP(S) client
-            let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
+    let proxy_thread = std::thread::Builder::new()
+        .name("proxy".to_string())
+        .stack_size(7000)
+        .spawn(move || -> anyhow::Result<()> {
 
+        loop {
             // GET
-            let proxy_response = get_request(&mut client);
+            let proxy_response = query_proxy();
 
             let mut num = query_screen_updates.lock().unwrap();
             match proxy_response {
@@ -138,23 +138,6 @@ fn main() -> anyhow::Result<()> {
         // Don't let the idle task starve and trigger warnings from the watchdog.
         FreeRtos::delay_ms(100);
     }
-
-    //Ok(())
-
-    /*
-    loop {
-        let proxy_response = query_proxy(PROXY_ROUTE)?;
-        {
-            let mut num = query_screen_updates.lock().unwrap();
-            *num = proxy_response.split('\n').map(String::from).collect();
-        }
-        //FreeRtos::delay_ms(HZ);
-        for _ in 0..100 {
-            FreeRtos::delay_ms(100);
-        }
-    }
-    */
-
 }
 
 async fn connect_wifi(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
@@ -180,54 +163,11 @@ async fn connect_wifi(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<
     Ok(())
 }
 
-fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
+fn query_proxy() -> anyhow::Result<String> {
+    // Create HTTP(S) client
     let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
-    let request = client.get(url.as_ref())?;
-    let response = request.submit()?;
-    let status = response.status();
-
-    info!("Proxy Query status: {}", status);
-
-    match status {
-        200..=299 => {
-            let mut buf = [0_u8; 256];
-            let offset = 0;
-            let mut reader = response;
-            let mut ex_size = 0;
-            loop {
-                if let Ok(size) = Read::read(&mut reader, &mut buf[offset..]) {
-                    if size == 0 {
-                        break;
-                    }
-                    ex_size = size;
-                }
-            }
-
-            let size_plus_offset = ex_size + offset;
-            match str::from_utf8(&buf[..size_plus_offset]) {
-                Ok(text) => Ok(text.to_string()),
-                Err(e) => {
-                    error!("Could not decode proxy response");
-                    bail!(e)
-                }
-            }
-        }
-        _ => bail!(format!("Got non-200 status: {}", status))
-    }
-}
-
-
-use embedded_svc::{
-    http::Method,
-    utils::io,
-};
-
-/// Send an HTTP GET request.
-fn get_request(client: &mut HttpClient<EspHttpConnection>) -> anyhow::Result<String> {
-    info!("Get...?");
     // Prepare headers and URL
     let headers = [("accept", "text/plain")];
-    //let url = "http://ifconfig.net/";
 
     // Send request
     //
@@ -254,5 +194,6 @@ fn get_request(client: &mut HttpClient<EspHttpConnection>) -> anyhow::Result<Str
         Err(e) => bail!("Error decoding response body: {}", e),
     }
     // Drain the remaining response bytes
+    // It's rust, this isn't necessary... right?
     //while response.read(&mut buf)? > 0 {}
 }
