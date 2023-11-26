@@ -8,7 +8,7 @@ use embedded_svc::{
 use esp_idf_hal::{
     delay::FreeRtos,
     i2c::*,
-    peripherals::Peripherals, sys::ESP_ERR_HTTP_CONNECT,
+    peripherals::Peripherals,
 };
 
 use esp_idf_svc::{
@@ -109,28 +109,36 @@ fn main() -> anyhow::Result<()> {
         loop {
             // GET
             let proxy_response = query_proxy();
-            let mut screen = query_screen_updates.lock().unwrap();
             match proxy_response {
                 Ok(r) => {
                     info!("Proxy query successful.");
+                    let mut screen = query_screen_updates.lock().unwrap();
                     *screen = r.split('\n').map(String::from).collect();
                 },
                 Err(e) => {
                     error!("Proxy Thread Error: {}", e);
-                    *screen = vec!["Could not fetch updates.".to_string(), "".to_string(), "".to_string(), "".to_string()];
+                    // Spaghetti. If you see ESP_ERR_HTTP_CONNECT, then try
+                    // Re-connecting to the WiFi
                     if e.to_string() == "ESP_ERR_HTTP_CONNECT" {
                         loop {
                             info!("Connecting WiFi...");
-                            *screen = vec!["ESP_ERR_HTTP_CONNECT".to_string(), "Re-connecting".to_string(), "".to_string(), "".to_string()];
+                            {
+                                let mut screen = query_screen_updates.lock().unwrap();
+                                *screen = vec!["ESP_ERR_HTTP_CONNECT".to_string(), "Re-connecting...".to_string(), "".to_string(), "".to_string()];
+                            }
 
                             match block_on(connect_wifi(&mut wifi)) {
                                 Ok(()) => break,
                                 Err(_) => {
                                     warn!("Connection failed. Trying again.");
-                                    *screen = vec!["Can't connect.".to_string(), "Re-trying...".to_string(), "".to_string(), "".to_string()];
                                     FreeRtos::delay_ms(3000);
                                 },
                             };
+                        }
+                    } else {
+                        {
+                            let mut screen = query_screen_updates.lock().unwrap();
+                            *screen = vec!["Could not fetch updates.".to_string(), e.to_string(), "".to_string(), "".to_string()];
                         }
                     }
                 },
