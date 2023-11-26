@@ -94,6 +94,7 @@ fn main() -> anyhow::Result<()> {
     let query_screen_updates = Arc::clone(&screen_updates);
 
     let lcd_thread = std::thread::Builder::new()
+        .stack_size(7000)
         .spawn(move || -> anyhow::Result<()> { lcd.run(lcd_screen_updates) });
 
     /*
@@ -105,9 +106,16 @@ fn main() -> anyhow::Result<()> {
     * connect to the internet, but the server doesn't respond), it will update
     * the display and set it to flash, then try to re-connect.
     */
-    let proxy_thread = std::thread::Builder::new().spawn(move || -> anyhow::Result<()> {
+    let proxy_thread = std::thread::Builder::new().stack_size(7000).spawn(move || -> anyhow::Result<()> {
         loop {
-            let proxy_response = query_proxy(PROXY_ROUTE);
+            //let proxy_response = query_proxy(PROXY_ROUTE);
+                    
+            // Create HTTP(S) client
+            let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
+
+            // GET
+            let proxy_response = get_request(&mut client);
+
             let mut num = query_screen_updates.lock().unwrap();
             match proxy_response {
                 Ok(r) => {
@@ -208,3 +216,43 @@ fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
     }
 }
 
+
+use embedded_svc::{
+    http::Method,
+    utils::io,
+};
+
+/// Send an HTTP GET request.
+fn get_request(client: &mut HttpClient<EspHttpConnection>) -> anyhow::Result<String> {
+    info!("Get...?");
+    // Prepare headers and URL
+    let headers = [("accept", "text/plain")];
+    //let url = "http://ifconfig.net/";
+
+    // Send request
+    //
+    // Note: If you don't want to pass in any headers, you can also use `client.get(url, headers)`.
+    let request = client.request(Method::Get, PROXY_ROUTE, &headers)?;
+    info!("-> GET {}", PROXY_ROUTE);
+    let mut response = request.submit()?;
+
+    // Process response
+    let status = response.status();
+    info!("<- {}", status);
+    let mut buf = [0u8; 1024];
+    let bytes_read = io::try_read_full(&mut response, &mut buf).map_err(|e| e.0)?;
+    info!("Read {} bytes", bytes_read);
+    match std::str::from_utf8(&buf[0..bytes_read]) {
+        Ok(body_string) => {
+            info!(
+                "Response body (truncated to {} bytes): {:?}",
+                buf.len(),
+                body_string
+            );
+            Ok(body_string.to_string())
+        },
+        Err(e) => bail!("Error decoding response body: {}", e),
+    }
+    // Drain the remaining response bytes
+    //while response.read(&mut buf)? > 0 {}
+}
