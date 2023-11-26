@@ -1,3 +1,4 @@
+use anyhow::bail;
 use embedded_svc::{
     http::client::Client as HttpClient,
     io::Read,
@@ -20,7 +21,7 @@ use esp_idf_svc::{
 
 use hd44780_driver::bus::I2CBus;
 
-use log::info;
+use log::{info, warn, error};
 
 pub mod config;
 pub mod display;
@@ -31,9 +32,7 @@ use crate::{
 };
 
 use core::str;
-use std::sync::{Arc, Mutex};
-
-use anyhow::bail;
+use std::{sync::{Arc, Mutex}, net::ToSocketAddrs};
 
 use futures::executor::block_on;
 
@@ -44,7 +43,7 @@ fn main() -> anyhow::Result<()> {
 
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
-    println!("Booting Sidegrade...");
+    info!("Booting Sidegrade...");
 
     let peripherals = Peripherals::take()?;
 
@@ -53,7 +52,7 @@ fn main() -> anyhow::Result<()> {
     let timer_service = EspTaskTimerService::new()?;
 
     // Set up display
-    println!("Waiting for display...");
+    info!("Waiting for display...");
     let i2c = peripherals.i2c1;
     let sda = peripherals.pins.gpio13;
     let scl = peripherals.pins.gpio12;
@@ -61,7 +60,7 @@ fn main() -> anyhow::Result<()> {
 
     // Connect to Wifi
     lcd.write("Connecting...");
-    println!("Setting up Wifi...");
+    info!("Setting up Wifi...");
     let mut wifi = AsyncWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
         sys_loop,
@@ -69,11 +68,11 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     loop {
-        println!("Connecting WiFi...");
+        info!("Connecting WiFi...");
         match block_on(connect_wifi(&mut wifi)) {
             Ok(()) => break,
             Err(e) => {
-                println!("Connection failed. Trying again.");
+                warn!("Connection failed. Trying again.");
                 lcd.write(format!("Can't connect.\n{}", e).as_str());
                 // Flash the screen three times to indicate that we can't
                 // Connect. Side effect of delaying 3 seconds.
@@ -106,22 +105,35 @@ fn main() -> anyhow::Result<()> {
     * connect to the internet, but the server doesn't respond), it will update
     * the display and set it to flash, then try to re-connect.
     */
-    //let proxy_thread = std::thread::Builder::new().spawn(move || -> anyhow::Result<()> {
-    //    loop {
-    //        let proxy_response = query_proxy(PROXY_ROUTE)?;
-    //        {
-    //            let mut num = query_screen_updates.lock().unwrap();
-    //            *num = proxy_response.split('\n').map(String::from).collect();
-    //        }
-    //        FreeRtos::delay_ms(HZ);
-    //    }
-    //});
+    let proxy_thread = std::thread::Builder::new().spawn(move || -> anyhow::Result<()> {
+        loop {
+            let proxy_response = query_proxy(PROXY_ROUTE);
+            let mut num = query_screen_updates.lock().unwrap();
+            match proxy_response {
+                Ok(r) => {
+                    *num = r.split('\n').map(String::from).collect();
+                },
+                Err(e) => {
+                    error!("Proxy Thread Error: {}", e);
+                    *num = vec!["Could not fetch updates.".to_string(), "".to_string(), "".to_string(), "".to_string()];
+                },
+            }
+            FreeRtos::delay_ms(HZ);
+        }
+    });
 
-    //lcd_thread?.join().unwrap()?;
-    //proxy_thread?.join().unwrap()?;
+    lcd_thread?.join().unwrap()?;
+    proxy_thread?.join().unwrap()?;
+    info!("Joined threads");
 
-    println!("Joined threads");
+    loop {
+        // Don't let the idle task starve and trigger warnings from the watchdog.
+        FreeRtos::delay_ms(100);
+    }
 
+    //Ok(())
+
+    /*
     loop {
         let proxy_response = query_proxy(PROXY_ROUTE)?;
         {
@@ -133,15 +145,11 @@ fn main() -> anyhow::Result<()> {
             FreeRtos::delay_ms(100);
         }
     }
+    */
 
-    //loop {
-    //    // Don't let the idle task starve and trigger warnings from the watchdog.
-    //    FreeRtos::delay_ms(100);
-    //}
 }
 
 async fn connect_wifi(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
-    println!("Wifi Configuration");
     let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
         ssid: SSID.into(),
         bssid: None,
@@ -150,18 +158,14 @@ async fn connect_wifi(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<
         channel: None,
     });
 
-    println!("Set configuration");
     wifi.set_configuration(&wifi_configuration)?;
 
-    println!("Start Wifi");
     wifi.start().await?;
     info!("Wifi started");
 
-    println!("Connect WiFi");
     wifi.connect().await?;
     info!("Wifi connected");
 
-    println!("WiFi up");
     wifi.wait_netif_up().await?;
     info!("Wifi netif up");
 
@@ -174,7 +178,7 @@ fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
     let response = request.submit()?;
     let status = response.status();
 
-    println!("Status: {}", status);
+    info!("Proxy Query status: {}", status);
 
     match status {
         200..=299 => {
@@ -194,12 +198,13 @@ fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
             let size_plus_offset = ex_size + offset;
             match str::from_utf8(&buf[..size_plus_offset]) {
                 Ok(text) => Ok(text.to_string()),
-                Err(_error) => {
-                    bail!("Fuck")
+                Err(e) => {
+                    error!("Could not decode proxy response");
+                    bail!(e)
                 }
             }
         }
-        _ => bail!("Unexpected response code: {}", status),
+        _ => bail!(format!("Got non-200 status: {}", status))
     }
 }
 

@@ -12,6 +12,8 @@ use hd44780_driver::{
     Cursor, CursorBlink, Display, DisplayMode, HD44780,
 };
 
+use log::info;
+
 use crate::config::I2C_ADDR;
 
 pub struct SidegradeDisplay<B: DataBus> {
@@ -91,6 +93,7 @@ impl<B: DataBus> SidegradeDisplay<B> {
             FreeRtos::delay_ms(1000);
             if l_fin.iter().all(|&x| x) {
                 {
+                    info!("Update display");
                     let num = m.lock().unwrap();
                     self.text = (*num.clone()).to_vec();
                 }
