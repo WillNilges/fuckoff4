@@ -8,7 +8,7 @@ use embedded_svc::{
 use esp_idf_hal::{
     delay::FreeRtos,
     i2c::*,
-    peripherals::Peripherals,
+    peripherals::Peripherals, sys::ESP_ERR_HTTP_CONNECT,
 };
 
 use esp_idf_svc::{
@@ -118,6 +118,21 @@ fn main() -> anyhow::Result<()> {
                 Err(e) => {
                     error!("Proxy Thread Error: {}", e);
                     *screen = vec!["Could not fetch updates.".to_string(), "".to_string(), "".to_string(), "".to_string()];
+                    if e.to_string() == "ESP_ERR_HTTP_CONNECT" {
+                        loop {
+                            info!("Connecting WiFi...");
+                            *screen = vec!["ESP_ERR_HTTP_CONNECT".to_string(), "Re-connecting".to_string(), "".to_string(), "".to_string()];
+
+                            match block_on(connect_wifi(&mut wifi)) {
+                                Ok(()) => break,
+                                Err(_) => {
+                                    warn!("Connection failed. Trying again.");
+                                    *screen = vec!["Can't connect.".to_string(), "Re-trying...".to_string(), "".to_string(), "".to_string()];
+                                    FreeRtos::delay_ms(3000);
+                                },
+                            };
+                        }
+                    }
                 },
             }
             FreeRtos::delay_ms(HZ);
