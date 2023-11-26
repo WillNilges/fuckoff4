@@ -47,7 +47,7 @@ async fn reserve(
 
 #[get("/billboard")]
 async fn billboard() -> impl Responder {
-    "Hello\nworld how are you doing today I am doing just fine\non this\nlovely day this is wonderful isnt it?"
+    "Hello world.\nThis is a test of how long the lines can be, as lines can get pretty long.\nChom.\nAnd also, Skz skal sklad sklin sklub skloob skleeb."
 }
 
 //#[post("/billboard")]

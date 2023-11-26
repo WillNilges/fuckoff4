@@ -169,7 +169,6 @@ mod tests {
     use crate::calendar::{CalendarEvents, Event, EventTimeInfo};
     use chrono::prelude::*;
 
-
     #[test]
     fn test_get_next_at_location() {
         let events = CalendarEvents {
