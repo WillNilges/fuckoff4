@@ -50,27 +50,23 @@ async fn billboard() -> impl Responder {
     "Hello world.\nThis is a test of how long the lines can be, as lines can get pretty long.\nChom.\nAnd also, Skz skal sklad sklin sklub skloob skleeb."
 }
 
-//#[post("/billboard")]
-//async fn set_billboard() -> impl Responder {
-//
-//}
-
 #[get("/hello/{name}")]
 async fn name(name: web::Path<String>) -> impl Responder {
-    format!("FuckOff, {}!", &name)
+    format!("Hello, {}!", &name)
 }
 
 #[get("/")]
 async fn test() -> impl Responder {
-    "FuckOff!"
+    "Oh, hi."
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    println!("Launching fuckoff4-proxy");
+    println!("Launching sidegrade4-proxy");
     println!("Check dotenv");
     dotenv().ok();
     println!("Run webserver");
+
     HttpServer::new(|| App::new().service(screen).service(name).service(test).service(billboard))
         .bind(("0.0.0.0", 8080))?
         .run()
