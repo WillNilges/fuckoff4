@@ -25,35 +25,20 @@ async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> St
     };
 
     if Utc::now() > *last_update + chrono::Duration::seconds(ttl) {
-        println!("Refreshing cache...");
+        print!("Refreshing cache...");
         match (*events).update().await {
-            Ok(_) => {},
+            Ok(_) => {
+                *last_update = Utc::now();
+            },
             Err(e) => return format!("Failed to get calendar events: {}", e).to_string(),
         };
-        *last_update = Utc::now();
     }
+    println!(" done");
 
     match (*events).get_next_at_location(&location.to_case(Case::Title)) {
         Some(e) => e.format_1602(),
         None => "No upcoming events.".to_string(),
     }
-
-
-    /*
-    println!("Get calendar events for {}", location);
-    if Utc::now() > *last_update + chrono::Duration::seconds(30) {
-        (*events).update();
-        *last_update = Utc::now();
-    }*/
-/*
-    match cache.events {
-        Ok(u) => match u.get_next_at_location(&location.to_case(Case::Title)) {
-            Some(e) => e.format_1602(),
-            None => "No upcoming events.".to_string(),
-        },
-        Err(e) => format!("Failed to get calendar events: {}", e).to_string(),
-    }
-*/
 }
 
 #[get("/reserve/<location>/")]
@@ -82,18 +67,7 @@ async fn reserve(
     }
 }
 
-#[get("/billboard")]
-async fn billboard() -> impl Responder {
-    "Hello world.\nThis is a test of how long the lines can be, as lines can get pretty long.\nChom.\nAnd also, Skz skal sklad sklin sklub skloob skleeb."
-}
-
-#[get("/hello/{name}")]
-async fn name(name: web::Path<String>) -> impl Responder {
-    format!("Hello, {}!", &name)
-}
-
-#[get("/")]
-async fn test() -> impl Responder {
+async fn oh_hi() -> impl Responder {
     "Oh, hi."
 }
 
@@ -113,6 +87,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(cache.clone())
             .route("/locations/{location}/event", web::get().to(screen))
+            .route("/", web::get().to(oh_hi))
     })
     .bind(("0.0.0.0", 8080))?
     .run()

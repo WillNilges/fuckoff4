@@ -88,6 +88,7 @@ impl CalendarEvents {
         Ok(events)
     }
 
+    // Update the contents of this struct
     pub async fn update(&mut self) -> anyhow::Result<()> {
         let gcal_resp = Self::query_gcal().await?;
         self.items = serde_json::from_str::<CalendarEvents>(gcal_resp.as_str())
