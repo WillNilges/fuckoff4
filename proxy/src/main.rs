@@ -29,11 +29,15 @@ async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> St
         match (*events).update().await {
             Ok(_) => {
                 *last_update = Utc::now();
+                println!(" done");
             },
-            Err(e) => return format!("Failed to get calendar events: {}", e).to_string(),
+            Err(e) => {
+                let msg = format!("Failed to get calendar events: {}", e).to_string();
+                println!("{}", msg);
+                return msg;
+            },
         };
     }
-    println!(" done");
 
     match (*events).get_next_at_location(&location.to_case(Case::Title)) {
         Some(e) => e.format_1602(),

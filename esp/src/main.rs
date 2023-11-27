@@ -53,8 +53,8 @@ fn main() -> anyhow::Result<()> {
     // Set up display
     info!("Waiting for display...");
     let i2c = peripherals.i2c1;
-    let sda = peripherals.pins.gpio13;
-    let scl = peripherals.pins.gpio12;
+    let sda = peripherals.pins.gpio33;
+    let scl = peripherals.pins.gpio32;
     let mut lcd = SidegradeDisplay::<I2CBus<I2cDriver>>::new_i2c(i2c, sda, scl)?;
 
     // Connect to Wifi
@@ -119,7 +119,8 @@ fn main() -> anyhow::Result<()> {
                     error!("Proxy Thread Error: {}", e);
                     // Spaghetti. If you see ESP_ERR_HTTP_CONNECT, then try
                     // Re-connecting to the WiFi
-                    if e.to_string() == "ESP_ERR_HTTP_CONNECT" {
+                    if /*e.to_string() == "ESP_ERR_HTTP_CONNECT" && */ !wifi.is_connected()?  {
+
                         loop {
                             info!("Connecting WiFi...");
                             {
@@ -138,8 +139,9 @@ fn main() -> anyhow::Result<()> {
                     } else {
                         {
                             let mut screen = query_screen_updates.lock().unwrap();
-                            *screen = vec!["Could not fetch updates.".to_string(), e.to_string(), "".to_string(), "".to_string()];
+                            *screen = vec!["Could not fetch updates.".to_string(), e.to_string(), "Check Proxy?".to_string(), "".to_string()];
                         }
+                        FreeRtos::delay_ms(3000);
                     }
                 },
             }

@@ -94,8 +94,11 @@ impl<B: DataBus> SidegradeDisplay<B> {
             if l_fin.iter().all(|&x| x) {
                 {
                     info!("Update display");
-                    let num = m.lock().unwrap();
-                    self.text = (*num.clone()).to_vec();
+                    let screen = m.lock().unwrap();
+                    self.text = (*screen.clone()).to_vec();
+                    if self.text.len() < 4 {
+                        self.text.resize(4, String::new());
+                    }
                 }
             }
         }
