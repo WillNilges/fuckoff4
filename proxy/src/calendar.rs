@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::Deserialize;
-use std::env;
+use std::{env, any};
 use url::form_urlencoded;
 
 // Struct that fits the dateTime field of the Google Calendar API
@@ -73,7 +73,7 @@ impl Event {
 
 // Object used to grok payload returned directly by the Google Calendar
 // API
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct CalendarEvents {
     pub kind: String,
     pub items: Vec<Event>,
@@ -86,6 +86,13 @@ impl CalendarEvents {
         let events: Self = serde_json::from_str::<CalendarEvents>(gcal_resp.as_str())
             .map_err(|e| anyhow!("{}", e))?;
         Ok(events)
+    }
+
+    pub async fn update(&mut self) -> anyhow::Result<()> {
+        let gcal_resp = Self::query_gcal().await?;
+        self.items = serde_json::from_str::<CalendarEvents>(gcal_resp.as_str())
+            .map_err(|e| anyhow!("{}", e))?.items;
+        Ok(())
     }
 
     // Perform Google Calendar API Call

@@ -3,20 +3,57 @@ use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use dotenv::dotenv;
 
+use std::{env, sync::Mutex};
+
 pub mod calendar;
 use calendar::CalendarEvents;
 
-#[get("/locations/{location}/event")]
-async fn screen(location: web::Path<String>) -> impl Responder {
+struct EventCache {
+    events: Mutex<CalendarEvents>,
+    last_update: Mutex<DateTime<Utc>>,
+}
+
+async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> String {
     println!("Get calendar events for {}", location);
-    let upcoming_events = CalendarEvents::new().await;
-    match upcoming_events {
+    let mut last_update = cache.last_update.lock().unwrap();
+    let mut events = cache.events.lock().unwrap();
+
+    // Check if we need to update.
+    let ttl: i64 = match env::var("CACHE_TTL") {
+        Ok(t) => t.parse::<i64>().unwrap(),
+        Err(_) => 30,
+    };
+
+    if Utc::now() > *last_update + chrono::Duration::seconds(ttl) {
+        println!("Refreshing cache...");
+        match (*events).update().await {
+            Ok(_) => {},
+            Err(e) => return format!("Failed to get calendar events: {}", e).to_string(),
+        };
+        *last_update = Utc::now();
+    }
+
+    match (*events).get_next_at_location(&location.to_case(Case::Title)) {
+        Some(e) => e.format_1602(),
+        None => "No upcoming events.".to_string(),
+    }
+
+
+    /*
+    println!("Get calendar events for {}", location);
+    if Utc::now() > *last_update + chrono::Duration::seconds(30) {
+        (*events).update();
+        *last_update = Utc::now();
+    }*/
+/*
+    match cache.events {
         Ok(u) => match u.get_next_at_location(&location.to_case(Case::Title)) {
             Some(e) => e.format_1602(),
             None => "No upcoming events.".to_string(),
         },
         Err(e) => format!("Failed to get calendar events: {}", e).to_string(),
     }
+*/
 }
 
 #[get("/reserve/<location>/")]
@@ -67,8 +104,17 @@ async fn main() -> std::io::Result<()> {
     dotenv().ok();
     println!("Run webserver");
 
-    HttpServer::new(|| App::new().service(screen).service(name).service(test).service(billboard))
-        .bind(("0.0.0.0", 8080))?
-        .run()
-        .await
+    let cache = web::Data::new(EventCache {
+        events: Mutex::new(CalendarEvents::new().await.unwrap()),
+        last_update: Mutex::new(Utc::now()),
+    });
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(cache.clone())
+            .route("/locations/{location}/event", web::get().to(screen))
+    })
+    .bind(("0.0.0.0", 8080))?
+    .run()
+    .await
 }
