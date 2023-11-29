@@ -1,15 +1,11 @@
 use anyhow::bail;
 use embedded_svc::{
     http::{client::Client as HttpClient, Method},
-    wifi::{AuthMethod, ClientConfiguration, Configuration},
     utils::io,
+    wifi::{AuthMethod, ClientConfiguration, Configuration},
 };
 
-use esp_idf_hal::{
-    delay::FreeRtos,
-    i2c::*,
-    peripherals::Peripherals,
-};
+use esp_idf_hal::{delay::FreeRtos, i2c::*, peripherals::Peripherals};
 
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
@@ -21,7 +17,7 @@ use esp_idf_svc::{
 
 use hd44780_driver::bus::I2CBus;
 
-use log::{info, warn, error};
+use log::{error, info, warn};
 
 use std::sync::{Arc, Mutex};
 
@@ -76,7 +72,7 @@ fn main() -> anyhow::Result<()> {
                 warn!("Connection failed. Trying again.");
                 lcd.write(format!("Can't connect.\n{}", e).as_str());
                 FreeRtos::delay_ms(3000);
-            },
+            }
         };
     }
 
@@ -94,60 +90,71 @@ fn main() -> anyhow::Result<()> {
     let query_screen_updates = Arc::clone(&screen_updates);
 
     /*
-    * I suppose this is the bonafide main thread.
-    * Nominally, it will query the proxy for a new string every HZ
-    * milliseconds.
-    *
-    * If it fails to do so because of an issue with the server (that is, it can
-    * connect to the internet, but the server doesn't respond), it will update
-    * the display and set it to flash, then try to re-connect.
-    */
+     * I suppose this is the bonafide main thread.
+     * Nominally, it will query the proxy for a new string every HZ
+     * milliseconds.
+     *
+     * If it fails to do so because of an issue with the server (that is, it can
+     * connect to the internet, but the server doesn't respond), it will update
+     * the display and set it to flash, then try to re-connect.
+     */
     let proxy_thread = std::thread::Builder::new()
         .name("proxy".to_string())
         .stack_size(7000)
         .spawn(move || -> anyhow::Result<()> {
-        loop {
-            // GET
-            let proxy_response = query_proxy();
-            match proxy_response {
-                Ok(r) => {
-                    info!("Proxy query successful.");
-                    let mut screen = query_screen_updates.lock().unwrap();
-                    *screen = r.split('\n').map(String::from).collect();
-                },
-                Err(e) => {
-                    error!("Proxy Thread Error: {}", e);
-                    // Spaghetti. If you see ESP_ERR_HTTP_CONNECT, then try
-                    // Re-connecting to the WiFi
-                    if /*e.to_string() == "ESP_ERR_HTTP_CONNECT" && */ !wifi.is_connected()?  {
+            loop {
+                // GET
+                let proxy_response = query_proxy();
+                match proxy_response {
+                    Ok(r) => {
+                        info!("Proxy query successful.");
+                        let mut screen = query_screen_updates.lock().unwrap();
+                        *screen = r.split('\n').map(String::from).collect();
+                    }
+                    Err(e) => {
+                        error!("Proxy Thread Error: {}", e);
+                        // Spaghetti. If you see ESP_ERR_HTTP_CONNECT, then try
+                        // Re-connecting to the WiFi
+                        if
+                        /*e.to_string() == "ESP_ERR_HTTP_CONNECT" && */
+                        !wifi.is_connected()? {
+                            loop {
+                                info!("Connecting WiFi...");
+                                {
+                                    let mut screen = query_screen_updates.lock().unwrap();
+                                    *screen = vec![
+                                        "ESP_ERR_HTTP_CONNECT".to_string(),
+                                        "Re-connecting...".to_string(),
+                                        "".to_string(),
+                                        "".to_string(),
+                                    ];
+                                }
 
-                        loop {
-                            info!("Connecting WiFi...");
+                                match block_on(connect_wifi(&mut wifi)) {
+                                    Ok(()) => break,
+                                    Err(_) => {
+                                        warn!("Connection failed. Trying again.");
+                                        FreeRtos::delay_ms(3000);
+                                    }
+                                };
+                            }
+                        } else {
                             {
                                 let mut screen = query_screen_updates.lock().unwrap();
-                                *screen = vec!["ESP_ERR_HTTP_CONNECT".to_string(), "Re-connecting...".to_string(), "".to_string(), "".to_string()];
+                                *screen = vec![
+                                    "Could not fetch updates.".to_string(),
+                                    e.to_string(),
+                                    "Check Proxy?".to_string(),
+                                    "".to_string(),
+                                ];
                             }
-
-                            match block_on(connect_wifi(&mut wifi)) {
-                                Ok(()) => break,
-                                Err(_) => {
-                                    warn!("Connection failed. Trying again.");
-                                    FreeRtos::delay_ms(3000);
-                                },
-                            };
+                            FreeRtos::delay_ms(3000);
                         }
-                    } else {
-                        {
-                            let mut screen = query_screen_updates.lock().unwrap();
-                            *screen = vec!["Could not fetch updates.".to_string(), e.to_string(), "Check Proxy?".to_string(), "".to_string()];
-                        }
-                        FreeRtos::delay_ms(3000);
                     }
-                },
+                }
+                FreeRtos::delay_ms(HZ);
             }
-            FreeRtos::delay_ms(HZ);
-        }
-    });
+        });
 
     // The display thread. Basically just a billboard
     // Launched after the first attempt at querying the proxy so that the display
@@ -156,7 +163,6 @@ fn main() -> anyhow::Result<()> {
         .name("display".to_string())
         .stack_size(7000)
         .spawn(move || -> anyhow::Result<()> { lcd.run(lcd_screen_updates) });
-
 
     lcd_thread?.join().unwrap()?;
     proxy_thread?.join().unwrap()?;
@@ -218,7 +224,7 @@ fn query_proxy() -> anyhow::Result<String> {
                 body_string
             );
             Ok(body_string.to_string())
-        },
+        }
         Err(e) => bail!("Error decoding response body: {}", e),
     }
     // Drain the remaining response bytes

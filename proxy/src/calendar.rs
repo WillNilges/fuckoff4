@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::Deserialize;
-use std::{env, any};
+use std::{any, env};
 use url::form_urlencoded;
 
 // Struct that fits the dateTime field of the Google Calendar API
@@ -92,7 +92,8 @@ impl CalendarEvents {
     pub async fn update(&mut self) -> anyhow::Result<()> {
         let gcal_resp = Self::query_gcal().await?;
         self.items = serde_json::from_str::<CalendarEvents>(gcal_resp.as_str())
-            .map_err(|e| anyhow!("{}", e))?.items;
+            .map_err(|e| anyhow!("{}", e))?
+            .items;
         Ok(())
     }
 
@@ -172,7 +173,6 @@ impl CalendarEvents {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::calendar::{CalendarEvents, Event, EventTimeInfo};
@@ -191,12 +191,12 @@ mod tests {
                         date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap()),
                         date: None,
                         time_zone: None,
-                    } ,
+                    },
                     end: EventTimeInfo {
                         date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 1, 0, 0).unwrap()),
                         date: None,
                         time_zone: None,
-                    }
+                    },
                 },
                 Event {
                     summary: "Test Number 2".to_string(),
@@ -206,18 +206,21 @@ mod tests {
                         date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 2, 30, 0).unwrap()),
                         date: None,
                         time_zone: None,
-                    } ,
+                    },
                     end: EventTimeInfo {
                         date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 4, 0, 0).unwrap()),
                         date: None,
                         time_zone: None,
-                    }
-                }
+                    },
+                },
             ],
         };
-        
+
         // The next event should be "Test"
-        assert_eq!(events.get_next_at_location("Lounge").unwrap().summary, "Test");
+        assert_eq!(
+            events.get_next_at_location("Lounge").unwrap().summary,
+            "Test"
+        );
     }
 
     #[test]
@@ -233,12 +236,12 @@ mod tests {
                         date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap()),
                         date: None,
                         time_zone: None,
-                    } ,
+                    },
                     end: EventTimeInfo {
                         date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 1, 0, 0).unwrap()),
                         date: None,
                         time_zone: None,
-                    }
+                    },
                 },
                 Event {
                     summary: "Test Number 2".to_string(),
@@ -248,13 +251,13 @@ mod tests {
                         date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 2, 30, 0).unwrap()),
                         date: None,
                         time_zone: None,
-                    } ,
+                    },
                     end: EventTimeInfo {
                         date_time: Some(Utc.with_ymd_and_hms(2020, 1, 1, 4, 0, 0).unwrap()),
                         date: None,
                         time_zone: None,
-                    }
-                }
+                    },
+                },
             ],
         };
 

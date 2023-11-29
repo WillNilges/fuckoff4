@@ -30,12 +30,12 @@ async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> St
             Ok(_) => {
                 *last_update = Utc::now();
                 println!(" done");
-            },
+            }
             Err(e) => {
                 let msg = format!("Failed to get calendar events: {}", e).to_string();
                 println!("{}", msg);
                 return msg;
-            },
+            }
         };
     }
 

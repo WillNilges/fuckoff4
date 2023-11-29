@@ -1,4 +1,3 @@
-use std::sync::{Arc, Mutex};
 use embedded_hal::blocking::i2c;
 use esp_idf_hal::{
     delay::{Ets, FreeRtos},
@@ -11,6 +10,7 @@ use hd44780_driver::{
     bus::{DataBus, I2CBus},
     Cursor, CursorBlink, Display, DisplayMode, HD44780,
 };
+use std::sync::{Arc, Mutex};
 
 use log::info;
 
