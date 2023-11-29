@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::Deserialize;
-use std::{any, env};
+use std::env;
 use url::form_urlencoded;
 
 // Struct that fits the dateTime field of the Google Calendar API
@@ -135,7 +135,7 @@ impl CalendarEvents {
     pub fn get_next_at_location(&self, location: &str) -> Option<Event> {
         for e in &self.items {
             if let Some(ref l) = e.location {
-                if l.contains(&location) {
+                if l.contains(location) {
                     return Some(e.clone());
                 }
             }
@@ -154,7 +154,7 @@ impl CalendarEvents {
         let query = (start, end);
         for e in &self.items {
             if let Some(ref l) = e.location {
-                if l.contains(&location) {
+                if l.contains(location) {
                     let e_times = (e.start.date_time.unwrap(), e.end.date_time.unwrap());
                     if Self::is_overlap(&query, &e_times) {
                         return false;

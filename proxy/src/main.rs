@@ -3,7 +3,9 @@ use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use dotenv::dotenv;
 
-use std::{env, sync::Mutex};
+use std::env;
+
+use async_mutex::Mutex;
 
 pub mod calendar;
 use calendar::CalendarEvents;
@@ -15,8 +17,8 @@ struct EventCache {
 
 async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> String {
     println!("Get calendar events for {}", location);
-    let mut last_update = cache.last_update.lock().unwrap();
-    let mut events = cache.events.lock().unwrap();
+    let mut last_update = cache.last_update.lock().await;
+    let mut events = cache.events.lock().await;
 
     // Check if we need to update.
     let ttl: i64 = match env::var("CACHE_TTL") {
