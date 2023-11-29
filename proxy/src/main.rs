@@ -3,19 +3,47 @@ use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use dotenv::dotenv;
 
+use std::env;
+
+use async_mutex::Mutex;
+
 pub mod calendar;
 use calendar::CalendarEvents;
 
-#[get("/locations/{location}/event")]
-async fn screen(location: web::Path<String>) -> impl Responder {
+struct EventCache {
+    events: Mutex<CalendarEvents>,
+    last_update: Mutex<DateTime<Utc>>,
+}
+
+async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> String {
     println!("Get calendar events for {}", location);
-    let upcoming_events = CalendarEvents::new().await;
-    match upcoming_events {
-        Ok(u) => match u.get_next_at_location(location.to_string().to_case(Case::Title)) {
-            Some(e) => e.format_1602(),
-            None => "No upcoming events.".to_string(),
-        },
-        Err(e) => format!("Failed to get calendar events: {}", e).to_string(),
+    let mut last_update = cache.last_update.lock().await;
+    let mut events = cache.events.lock().await;
+
+    // Check if we need to update.
+    let ttl: i64 = match env::var("CACHE_TTL") {
+        Ok(t) => t.parse::<i64>().unwrap(),
+        Err(_) => 30,
+    };
+
+    if Utc::now() > *last_update + chrono::Duration::seconds(ttl) {
+        print!("Refreshing cache...");
+        match (*events).update().await {
+            Ok(_) => {
+                *last_update = Utc::now();
+                println!(" done");
+            }
+            Err(e) => {
+                let msg = format!("Failed to get calendar events: {}", e).to_string();
+                println!("{}", msg);
+                return msg;
+            }
+        };
+    }
+
+    match (*events).get_next_at_location(&location.to_case(Case::Title)) {
+        Some(e) => e.format_1602(),
+        None => "No upcoming events.".to_string(),
     }
 }
 
@@ -36,7 +64,7 @@ async fn reserve(
     let upcoming_events = CalendarEvents::new().await;
     match upcoming_events {
         Ok(u) => {
-            if u.is_free_at_location(location.to_string(), proposed_start, proposed_end) {
+            if u.is_free_at_location(&location, proposed_start, proposed_end) {
                 return "Is free!";
             }
             "Reserved at that time."
@@ -45,24 +73,29 @@ async fn reserve(
     }
 }
 
-#[get("/{name}")]
-async fn name(name: web::Path<String>) -> impl Responder {
-    format!("FuckOff, {}!", &name)
-}
-
-#[get("/")]
-async fn test() -> impl Responder {
-    "FuckOff!"
+async fn oh_hi() -> impl Responder {
+    "Oh, hi."
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    println!("Launching fuckoff4-proxy");
+    println!("Launching sidegrade4-proxy");
     println!("Check dotenv");
     dotenv().ok();
     println!("Run webserver");
-    HttpServer::new(|| App::new().service(screen).service(name).service(test))
-        .bind(("0.0.0.0", 8080))?
-        .run()
-        .await
+
+    let cache = web::Data::new(EventCache {
+        events: Mutex::new(CalendarEvents::new().await.unwrap()),
+        last_update: Mutex::new(Utc::now()),
+    });
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(cache.clone())
+            .route("/locations/{location}/event", web::get().to(screen))
+            .route("/", web::get().to(oh_hi))
+    })
+    .bind(("0.0.0.0", 8080))?
+    .run()
+    .await
 }

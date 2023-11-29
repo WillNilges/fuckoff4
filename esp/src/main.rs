@@ -1,30 +1,35 @@
-use esp_idf_hal::{delay::Ets, gpio::*, peripherals::Peripherals};
-
-use esp_idf_hal::delay::FreeRtos;
-
-use hd44780_driver::{Cursor, CursorBlink, Display, DisplayMode, HD44780};
-
+use anyhow::bail;
 use embedded_svc::{
-    http::client::Client as HttpClient,
-    io::Read,
+    http::{client::Client as HttpClient, Method},
+    utils::io,
     wifi::{AuthMethod, ClientConfiguration, Configuration},
 };
+
+use esp_idf_hal::{delay::FreeRtos, i2c::*, peripherals::Peripherals};
 
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop,
     http::client::EspHttpConnection,
     nvs::EspDefaultNvsPartition,
-    wifi::{BlockingWifi, EspWifi},
+    timer::EspTaskTimerService,
+    wifi::{AsyncWifi, EspWifi},
 };
 
-use log::info;
+use hd44780_driver::bus::I2CBus;
+
+use log::{error, info, warn};
+
+use std::sync::{Arc, Mutex};
+
+use futures::executor::block_on;
 
 pub mod config;
-use crate::config::{HZ, PASSWORD, PROXY_ROUTE, SSID};
+pub mod display;
 
-use core::str;
-
-use anyhow::bail;
+use crate::{
+    config::{HZ, PASSWORD, PROXY_ROUTE, SSID},
+    display::*,
+};
 
 fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
@@ -33,140 +38,143 @@ fn main() -> anyhow::Result<()> {
 
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
+    info!("Booting Sidegrade...");
 
     let peripherals = Peripherals::take()?;
 
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
+    let timer_service = EspTaskTimerService::new()?;
 
-    println!("Booting Fuckoff4...");
+    // Set up display
+    info!("Waiting for display...");
+    let i2c = peripherals.i2c1;
+    let sda = peripherals.pins.gpio33;
+    let scl = peripherals.pins.gpio32;
+    let mut lcd = SidegradeDisplay::<I2CBus<I2cDriver>>::new_i2c(i2c, sda, scl)?;
 
-    let lcd_register = PinDriver::output(peripherals.pins.gpio13)?;
-    let lcd_enable = PinDriver::output(peripherals.pins.gpio12)?;
-
-    let lcd_d4 = PinDriver::output(peripherals.pins.gpio14)?;
-    let lcd_d5 = PinDriver::output(peripherals.pins.gpio27)?;
-    let lcd_d6 = PinDriver::output(peripherals.pins.gpio26)?;
-    let lcd_d7 = PinDriver::output(peripherals.pins.gpio25)?;
-
-    let mut lcd = HD44780::new_4bit(
-        lcd_register,
-        lcd_enable,
-        lcd_d4,
-        lcd_d5,
-        lcd_d6,
-        lcd_d7,
-        &mut Ets,
-    )
-    .unwrap();
-
-    // Set up the display
-    let _ = lcd.reset(&mut Ets);
-    let _ = lcd.clear(&mut Ets);
-    let _ = lcd.set_display_mode(
-        DisplayMode {
-            display: Display::On,
-            cursor_visibility: Cursor::Invisible,
-            cursor_blink: CursorBlink::Off,
-        },
-        &mut Ets,
-    );
-
-    let _ = lcd.write_str("Connecting...", &mut Ets);
-
-    let mut wifi = BlockingWifi::wrap(
+    // Connect to Wifi
+    lcd.write("Connecting...");
+    info!("Setting up Wifi...");
+    let mut wifi = AsyncWifi::wrap(
         EspWifi::new(peripherals.modem, sys_loop.clone(), Some(nvs))?,
         sys_loop,
+        timer_service,
     )?;
-    connect_wifi(&mut wifi)?;
+
+    loop {
+        info!("Connecting WiFi...");
+        lcd.wipe();
+        lcd.write("Connecting...");
+        match block_on(connect_wifi(&mut wifi)) {
+            Ok(()) => break,
+            Err(e) => {
+                warn!("Connection failed. Trying again.");
+                lcd.write(format!("Can't connect.\n{}", e).as_str());
+                FreeRtos::delay_ms(3000);
+            }
+        };
+    }
+
+    // Once we're connected, print info and start API query service, as well
+    // as display service
     let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
     info!("Wifi DHCP info: {:?}", ip_info);
 
-    let _ = lcd.write_str("Setting up...", &mut Ets);
+    lcd.wipe();
+    lcd.write("Query Proxy...");
+
+    // Shared data so that the proxy thread can update the display thread
+    let screen_updates = Arc::new(Mutex::new(vec![String::new(); 4]));
+    let lcd_screen_updates = Arc::clone(&screen_updates);
+    let query_screen_updates = Arc::clone(&screen_updates);
+
+    /*
+     * I suppose this is the bonafide main thread.
+     * Nominally, it will query the proxy for a new string every HZ
+     * milliseconds.
+     *
+     * If it fails to do so because of an issue with the server (that is, it can
+     * connect to the internet, but the server doesn't respond), it will update
+     * the display and set it to flash, then try to re-connect.
+     */
+    let proxy_thread = std::thread::Builder::new()
+        .name("proxy".to_string())
+        .stack_size(7000)
+        .spawn(move || -> anyhow::Result<()> {
+            loop {
+                // GET
+                let proxy_response = query_proxy();
+                match proxy_response {
+                    Ok(r) => {
+                        info!("Proxy query successful.");
+                        let mut screen = query_screen_updates.lock().unwrap();
+                        *screen = r.split('\n').map(String::from).collect();
+                    }
+                    Err(e) => {
+                        error!("Proxy Thread Error: {}", e);
+                        // Spaghetti. If you see ESP_ERR_HTTP_CONNECT, then try
+                        // Re-connecting to the WiFi
+                        if
+                        /*e.to_string() == "ESP_ERR_HTTP_CONNECT" && */
+                        !wifi.is_connected()? {
+                            loop {
+                                info!("Connecting WiFi...");
+                                {
+                                    let mut screen = query_screen_updates.lock().unwrap();
+                                    *screen = vec![
+                                        "ESP_ERR_HTTP_CONNECT".to_string(),
+                                        "Re-connecting...".to_string(),
+                                        "".to_string(),
+                                        "".to_string(),
+                                    ];
+                                }
+
+                                match block_on(connect_wifi(&mut wifi)) {
+                                    Ok(()) => break,
+                                    Err(_) => {
+                                        warn!("Connection failed. Trying again.");
+                                        FreeRtos::delay_ms(3000);
+                                    }
+                                };
+                            }
+                        } else {
+                            {
+                                let mut screen = query_screen_updates.lock().unwrap();
+                                *screen = vec![
+                                    "Could not fetch updates.".to_string(),
+                                    e.to_string(),
+                                    "Check Proxy?".to_string(),
+                                    "".to_string(),
+                                ];
+                            }
+                            FreeRtos::delay_ms(3000);
+                        }
+                    }
+                }
+                FreeRtos::delay_ms(HZ);
+            }
+        });
+
+    // The display thread. Basically just a billboard
+    // Launched after the first attempt at querying the proxy so that the display
+    // is never blank.
+    let lcd_thread = std::thread::Builder::new()
+        .name("display".to_string())
+        .stack_size(7000)
+        .spawn(move || -> anyhow::Result<()> { lcd.run(lcd_screen_updates) });
+
+    lcd_thread?.join().unwrap()?;
+    proxy_thread?.join().unwrap()?;
+    info!("Joined threads");
 
     loop {
-        let proxy_response = query_proxy(PROXY_ROUTE);
-        //let _ = lcd.reset(&mut Ets);
-        //let _ = lcd.clear(&mut Ets);
-
-        // TODO: use shift_display to scroll the title, probably have to re-draw
-        // the time each frame. Need a timestamp for last refresh, and check
-        // that every frame, refreshing if the time since that hits like 30
-        // or whatever
-
-        // FIXME: The display has a buffer of some sort that the driver doesnt
-        // really account for. I think the max we can do is 42.
-        // Maybe I will chunk it into 40 characters.
-
-        match proxy_response {
-            Ok(d) => {
-                println!("Setting display: {}", d);
-                let display_text: Vec<&str> = d.split('\n').collect();
-                let time = format!("{: <16}", &display_text[1]);
-
-                if display_text[0].len() > 16 {
-                    for i in (0..display_text[0].len() - 12).step_by(4) {
-                        let mut t: String = display_text[0].chars().skip(i).take(16).collect();
-                        t = format!("{: <16}", t);
-                        let _ = lcd.set_cursor_pos(0, &mut Ets);
-                        let _ = lcd.write_str(&t, &mut Ets);
-                        let _ = lcd.set_cursor_pos(40, &mut Ets);
-                        let _ = lcd.write_str(&time, &mut Ets);
-                        FreeRtos::delay_ms(1000);
-                    }
-                    FreeRtos::delay_ms(1000);
-                } else {
-                    let text = format!("{: <16}", &display_text[0]);
-                    let _ = lcd.set_cursor_pos(0, &mut Ets);
-                    let _ = lcd.write_str(&text, &mut Ets);
-                    let _ = lcd.set_cursor_pos(40, &mut Ets);
-                    let _ = lcd.write_str(&time, &mut Ets);
-                    FreeRtos::delay_ms(HZ);
-                }
-            }
-            _ => {
-                let _ = lcd.write_str("Error connecting to\nproxy server.", &mut Ets);
-            }
-        }
+        // Don't let the idle task starve and trigger warnings from the watchdog.
+        FreeRtos::delay_ms(100);
     }
 }
 
-fn query_proxy(url: impl AsRef<str>) -> anyhow::Result<String> {
-    let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
-    let request = client.get(url.as_ref())?;
-    let response = request.submit()?;
-    let status = response.status();
-
-    println!("Status: {}", status);
-
-    match status {
-        200..=299 => {
-            let mut buf = [0_u8; 256];
-            let offset = 0;
-            let mut reader = response;
-            let mut ex_size = 0;
-            loop {
-                if let Ok(size) = Read::read(&mut reader, &mut buf[offset..]) {
-                    if size == 0 {
-                        break;
-                    }
-                    ex_size = size;
-                }
-            }
-
-            let size_plus_offset = ex_size + offset;
-            match str::from_utf8(&buf[..size_plus_offset]) {
-                Ok(text) => Ok(text.to_string()),
-                Err(_error) => {
-                    bail!("Fuck")
-                }
-            }
-        }
-        _ => bail!("Unexpected response code: {}", status),
-    }
-}
-
-fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()> {
+async fn connect_wifi(wifi: &mut AsyncWifi<EspWifi<'static>>) -> anyhow::Result<()> {
     let wifi_configuration: Configuration = Configuration::Client(ClientConfiguration {
         ssid: SSID.into(),
         bssid: None,
@@ -177,14 +185,49 @@ fn connect_wifi(wifi: &mut BlockingWifi<EspWifi<'static>>) -> anyhow::Result<()>
 
     wifi.set_configuration(&wifi_configuration)?;
 
-    wifi.start()?;
+    wifi.start().await?;
     info!("Wifi started");
 
-    wifi.connect()?;
+    wifi.connect().await?;
     info!("Wifi connected");
 
-    wifi.wait_netif_up()?;
+    wifi.wait_netif_up().await?;
     info!("Wifi netif up");
 
     Ok(())
+}
+
+fn query_proxy() -> anyhow::Result<String> {
+    // Create HTTP(S) client
+    let mut client = HttpClient::wrap(EspHttpConnection::new(&Default::default())?);
+    // Prepare headers and URL
+    let headers = [("accept", "text/plain")];
+
+    // Send request
+    //
+    // Note: If you don't want to pass in any headers, you can also use `client.get(url, headers)`.
+    let request = client.request(Method::Get, PROXY_ROUTE, &headers)?;
+    info!("-> GET {}", PROXY_ROUTE);
+    let mut response = request.submit()?;
+
+    // Process response
+    let status = response.status();
+    info!("<- {}", status);
+    let mut buf = [0u8; 1024];
+    let bytes_read = io::try_read_full(&mut response, &mut buf).map_err(|e| e.0)?;
+    info!("Read {} bytes", bytes_read);
+    match std::str::from_utf8(&buf[0..bytes_read]) {
+        Ok(body_string) => {
+            info!(
+                "Response body (truncated to {} bytes): {:?}",
+                buf.len(),
+                body_string
+            );
+            Ok(body_string.to_string())
+        }
+        Err(e) => bail!("Error decoding response body: {}", e),
+    }
+    // Drain the remaining response bytes
+    // It's rust, this isn't necessary... right?
+    //while response.read(&mut buf)? > 0 {}
 }
