@@ -1,11 +1,12 @@
-# fuckoff4
+# Project Sidegrade
 Oh my god make it stop
 
 <p align="center">
-  <img height="300px" src="https://github.com/WillNilges/fuckoff4/assets/42927786/d2b6d828-ceba-49d1-a27a-3e2e9aa53e85" alt="FuckOff4 Prototype (hopefully)">
+  <img height="300px" src="https://github.com/WillNilges/sidegrade/assets/42927786/5012d524-64e7-4df9-a1ba-9387a7c7d776" alt="FuckOff4 Prototype (hopefully)">
 </p>
 
-FuckOff4 is the fourth rendition of a piece of digital signage employed
+
+Sidegrade is the fourth rendition of a piece of digital signage employed
 at [Computer Science House](https://csh.rit.edu) to advertise events happening in
 special rooms.
 
@@ -13,11 +14,22 @@ The project consists of two parts: The Hardware, and The Proxy.
 
 ## Hardware
 
-<p align="center">
-  <img height="300px" src="https://github.com/WillNilges/fuckoff4/assets/42927786/7638e7aa-a8a2-4c88-be0f-557f66865085" alt="FuckOff4 Prototype (hopefully)">
-</p>
+The Hardware consists of an [ESP32](https://www.amazon.com/dp/B09QW6Y7KY?psc=1&ref=ppx_yo2ov_dt_b_product_details)
+and a [2004 display](https://www.amazon.com/dp/B0C1G9GBRZ?psc=1&ref=ppx_yo2ov_dt_b_product_details). The ESP32 has
+no headers, and the 2004 comes with an i2c adapter board. Using the provided Amazon links at time of writing it
+costs about $34 to build. It will also require soldering supplies, four 90° male pin headers, some wire, and four
+M3*16 machine screws.
 
-The Hardware consists of an ESP32 and a 1602 LCD display mated via a protoboard.
+Solder the following pins together, with the ESP32 facing away from the LCD. Leave some slack so that you can manipulate the two halves of the case later (ESP32 mounts in the back, 2004 Display mounts in the front)
+
+| 2004 I2C Board | GND | VCC | SDA | SCL |
+|----------------|-----|-----|-----|-----|
+| ESP32          | GND | VIN | D33 | D32 |
+
+Print the case. It shouldn't matter what filament is used.
+
+Place the ESP32 on the pegs on the bottom case. Place the LCD on top of that and get the wires situated. Then, put the top case on and use the screws to fasten the top case, LCD, and bottom case together.
+
 The firmware is written in Rust using tools from the excellent [esp-rs project](https://github.com/esp-rs).
 It connects to a WiFi network, and periodically queries the proxy for text to display on the screen. It
 is chiefly used to display events from the Google Calendar API. The first row is used to display the name of
