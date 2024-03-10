@@ -27,7 +27,7 @@ pub struct Event {
 }
 
 impl Event {
-    pub fn format_1602(&self) -> String {
+    pub fn format_2004(&self) -> String {
         if let Some(start_time) = &self.start.date_time {
             let duration_until = Self::time_until(start_time);
             if duration_until > Duration::zero() {

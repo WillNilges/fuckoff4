@@ -42,15 +42,20 @@ async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> St
     }
 
     let event_text = match (*events).get_next_at_location(&location.to_case(Case::Title)) {
-        Some(e) => e.format_1602(),
+        Some(e) => e.format_2004(),
         None => "No upcoming events.".to_string(),
     };
 
-    let now = chrono::offset::Local::now();
-    let mut time_text = format!("Time: {}:{}", now.hour(), now.minute());
+    // Lol this only works in Eastern
+    let now = chrono::offset::Utc::now().with_timezone(&chrono_tz::US::Eastern).format("%H:%M");
+    let mut time_text = format!("[{}]", now);
     time_text = format!("{: >width$}", time_text, width = 20);
 
-    let screen = format!("{}\n\n{}", event_text, time_text);
+    let screen = match event_text.lines().count() {
+        1 => format!("{}\n\n\n{}", event_text, time_text),
+        _ => format!("{}\n\n{}", event_text, time_text),
+    };
+
     return screen
 }
 
