@@ -47,7 +47,9 @@ async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> St
     };
 
     // Lol this only works in Eastern
-    let now = chrono::offset::Utc::now().with_timezone(&chrono_tz::US::Eastern).format("%H:%M");
+    let now = chrono::offset::Utc::now()
+        .with_timezone(&chrono_tz::US::Eastern)
+        .format("%H:%M");
     let mut time_text = format!("[{}]", now);
     time_text = format!("{: >width$}", time_text, width = 20);
 
@@ -56,7 +58,7 @@ async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> St
         _ => format!("{}\n\n{}", event_text, time_text),
     };
 
-    return screen
+    return screen;
 }
 
 #[get("/reserve/<location>/")]
