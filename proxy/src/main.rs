@@ -1,5 +1,5 @@
 use actix_web::{get, web, App, HttpServer, Responder};
-use chrono::{DateTime, Timelike, Utc};
+use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use dotenv::dotenv;
 
@@ -26,7 +26,7 @@ async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> St
         Err(_) => 30,
     };
 
-    if Utc::now() > *last_update + chrono::Duration::seconds(ttl) {
+    if Utc::now() > *last_update + chrono::Duration::try_seconds(ttl).unwrap() {
         print!("Refreshing cache...");
         match (*events).update().await {
             Ok(_) => {
@@ -47,16 +47,16 @@ async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> St
     };
 
     // Lol this only works in Eastern
-    let now = chrono::offset::Utc::now().with_timezone(&chrono_tz::US::Eastern).format("%H:%M");
+    let now = chrono::offset::Utc::now()
+        .with_timezone(&chrono_tz::US::Eastern)
+        .format("%H:%M");
     let mut time_text = format!("[{}]", now);
     time_text = format!("{: >width$}", time_text, width = 20);
 
-    let screen = match event_text.lines().count() {
+    match event_text.lines().count() {
         1 => format!("{}\n\n\n{}", event_text, time_text),
         _ => format!("{}\n\n{}", event_text, time_text),
-    };
-
-    return screen
+    }
 }
 
 #[get("/reserve/<location>/")]
