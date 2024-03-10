@@ -1,5 +1,5 @@
 use actix_web::{get, web, App, HttpServer, Responder};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use convert_case::{Case, Casing};
 use dotenv::dotenv;
 
@@ -41,10 +41,17 @@ async fn screen(cache: web::Data<EventCache>, location: web::Path<String>) -> St
         };
     }
 
-    match (*events).get_next_at_location(&location.to_case(Case::Title)) {
+    let event_text = match (*events).get_next_at_location(&location.to_case(Case::Title)) {
         Some(e) => e.format_1602(),
         None => "No upcoming events.".to_string(),
-    }
+    };
+
+    let now = chrono::offset::Local::now();
+    let mut time_text = format!("Time: {}:{}", now.hour(), now.minute());
+    time_text = format!("{: >width$}", time_text, width = 20);
+
+    let screen = format!("{}\n\n{}", event_text, time_text);
+    return screen
 }
 
 #[get("/reserve/<location>/")]
