@@ -133,14 +133,14 @@ impl CalendarEvents {
     }
 
     pub fn get_next_at_location(&self, location: &str) -> Option<Event> {
-        for e in &self.items {
-            if let Some(ref l) = e.location {
-                if l.contains(location) {
-                    return Some(e.clone());
-                }
-            }
-        }
-        None
+        self.items
+            .iter()
+            .find(|e| {
+                e.location.as_ref().is_some_and(|l| l.contains(location))
+                    && !e.summary.contains("CANCELED")
+                    && !e.summary.contains("CANCELLED")
+            })
+            .cloned()
     }
 
     // Check if the provided range of DateTimes overlap with anything
