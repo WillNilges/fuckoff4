@@ -1,7 +1,7 @@
 use actix_web::{get, web, App, HttpServer, Responder};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
-use dotenv::dotenv;
+use dotenvy::dotenv;
 
 use std::env;
 
