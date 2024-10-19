@@ -1,7 +1,7 @@
 use actix_web::{get, web, App, HttpServer, Responder};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
-use dotenv::dotenv;
+use dotenvy::dotenv;
 
 use std::env;
 
@@ -93,7 +93,7 @@ async fn oh_hi() -> impl Responder {
 async fn main() -> std::io::Result<()> {
     println!("Launching sidegrade4-proxy");
     println!("Check dotenv");
-    dotenv().ok();
+    let _ = dotenv();
     println!("Run webserver");
 
     let cache = web::Data::new(EventCache {
