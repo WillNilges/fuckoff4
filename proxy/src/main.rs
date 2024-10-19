@@ -93,7 +93,7 @@ async fn oh_hi() -> impl Responder {
 async fn main() -> std::io::Result<()> {
     println!("Launching sidegrade4-proxy");
     println!("Check dotenv");
-    dotenv().ok();
+    let _ = dotenv();
     println!("Run webserver");
 
     let cache = web::Data::new(EventCache {
