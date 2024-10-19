@@ -137,8 +137,7 @@ impl CalendarEvents {
             .iter()
             .find(|e| {
                 e.location.as_ref().is_some_and(|l| l.contains(location))
-                    && !e.summary.contains("CANCELED")
-                    && !e.summary.contains("CANCELLED")
+                    && !e.summary.contains("CANCEL")
             })
             .cloned()
     }
